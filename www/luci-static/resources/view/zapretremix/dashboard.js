@@ -86,8 +86,11 @@ return view.extend({
 
 	applyDns: function (cfg) {
 		if (cfg.mode === 'isp') {
+			// don't touch 'dns' at all — with peerdns=1, OpenWrt ignores the
+			// static dns list regardless of whatever stale value sits there,
+			// and deleting the option outright hits an ACL permission wall
+			// that plain set() to a real value doesn't.
 			uci.set('network', 'wan', 'peerdns', '1');
-			uci.set('network', 'wan', 'dns', '');
 		} else {
 			uci.set('network', 'wan', 'peerdns', '0');
 			var raw = (cfg.mode === 'public') ? PUBLIC_DNS : (cfg.mode === 'isp_ip') ? this.ispDns.join(' ') : cfg.dns;
