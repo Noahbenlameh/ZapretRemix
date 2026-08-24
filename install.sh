@@ -17,6 +17,12 @@ mkdir -p /opt/zapretremix
 cp -v "$SRC_DIR"/opt/zapretremix/*.sh /opt/zapretremix/
 chmod +x /opt/zapretremix/*.sh
 
+if [ ! -f /opt/zapretremix/dns-pool.txt ]; then
+	cp -v "$SRC_DIR/opt/zapretremix/dns-pool.txt.default" /opt/zapretremix/dns-pool.txt
+else
+	echo "dns-pool.txt already exists, leaving your edits alone."
+fi
+
 echo "Reloading rpcd (ACL) ..."
 /etc/init.d/rpcd restart
 

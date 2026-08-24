@@ -43,21 +43,30 @@ return view.extend({
 	getDnsConfig: function () {
 		var peerdns = uci.get('network', 'wan', 'peerdns');
 		var dnsList = uci.get('network', 'wan', 'dns');
-		var usingPublic = (peerdns === '0');
-		return {
-			peerdns: peerdns === null ? '1' : peerdns,
-			dns: Array.isArray(dnsList) ? dnsList.join(' ') : (dnsList || ''),
-			usingPublic: usingPublic
-		};
+		var dnsStr = Array.isArray(dnsList) ? dnsList.join(' ') : (dnsList || '');
+		var mode;
+		if (peerdns === '0' && dnsStr) {
+			mode = (dnsStr === PUBLIC_DNS) ? 'public' : 'custom';
+		} else {
+			mode = 'isp';
+		}
+		return { mode: mode, dns: dnsStr };
+	},
+
+	dnsLabel: function (cfg) {
+		if (cfg.mode === 'public') return 'Публичный DNS (' + PUBLIC_DNS + ') — обходит DNS-подмену провайдера';
+		if (cfg.mode === 'custom') return 'Свой DNS (' + cfg.dns + ')';
+		return 'DNS провайдера (по умолчанию) — некоторые домены могут не резолвиться из-за блокировки на уровне DNS';
 	},
 
 	applyDns: function (cfg) {
-		if (cfg.usingPublic) {
-			uci.set('network', 'wan', 'peerdns', '0');
-			uci.set('network', 'wan', 'dns', PUBLIC_DNS.split(' '));
-		} else {
+		if (cfg.mode === 'isp') {
 			uci.set('network', 'wan', 'peerdns', '1');
 			uci.set('network', 'wan', 'dns', '');
+		} else {
+			uci.set('network', 'wan', 'peerdns', '0');
+			var list = (cfg.mode === 'public' ? PUBLIC_DNS : cfg.dns).split(/\s+/).filter(Boolean);
+			uci.set('network', 'wan', 'dns', list);
 		}
 		return uci.save()
 			.then(function () { return fs.exec('/etc/init.d/network', [ 'restart' ]); });
@@ -163,16 +172,42 @@ return view.extend({
 			'style': 'display:none;margin-top:14px;padding:12px 14px;border:1px solid #c90;background:#fff8e6;border-radius:4px;color:#333;'
 		});
 
-		var dnsStatusText = E('span', { 'id': 'zr-dns-status-text' },
-			dnsCfg.usingPublic
-				? ('Публичный DNS (' + dnsCfg.dns + ') — обходит DNS-подмену провайдера')
-				: 'DNS провайдера (по умолчанию) — некоторые домены могут не резолвиться из-за блокировки на уровне DNS');
+		var dnsStatusText = E('span', { 'id': 'zr-dns-status-text' }, this.dnsLabel(dnsCfg));
 
-		var dnsToggleBtn = E('button', {
-			'id': 'zr-dns-toggle-btn',
-			'class': 'cbi-button ' + (dnsCfg.usingPublic ? 'cbi-button-negative' : 'cbi-button-apply'),
-			'click': ui.createHandlerFn(this, 'handleDnsToggle', !dnsCfg.usingPublic)
-		}, dnsCfg.usingPublic ? 'Вернуть DNS провайдера' : 'Переключить на публичный DNS (8.8.8.8 / 1.1.1.1)');
+		var dnsModeOptions = [
+			{ key: 'isp', label: 'DNS провайдера' },
+			{ key: 'public', label: 'Публичный DNS (8.8.8.8, 1.1.1.1)' },
+			{ key: 'custom', label: 'Свой DNS' }
+		];
+		var dnsRadios = E('div', { 'id': 'zr-dns-radios', 'style': 'display:flex;gap:18px;flex-wrap:wrap;margin:10px 0;' },
+			dnsModeOptions.map(function (opt) {
+				var attrs = { type: 'radio', name: 'zr-dns-mode', value: opt.key,
+					'click': function () {
+						document.getElementById('zr-dns-custom-row').style.display = (opt.key === 'custom') ? 'block' : 'none';
+					}
+				};
+				if (opt.key === dnsCfg.mode) attrs.checked = 'checked';
+				return E('label', { 'style': 'display:flex;align-items:center;gap:6px;' }, [
+					E('input', attrs),
+					opt.label
+				]);
+			})
+		);
+
+		var dnsCustomInput = E('input', {
+			'type': 'text', 'id': 'zr-dns-custom', 'placeholder': 'например: 9.9.9.9 94.140.14.14',
+			'value': (dnsCfg.mode === 'custom') ? dnsCfg.dns : '', 'style': 'width:100%;max-width:420px;'
+		});
+		var dnsCustomRow = E('div', {
+			'id': 'zr-dns-custom-row',
+			'style': 'display:' + (dnsCfg.mode === 'custom' ? 'block' : 'none') + ';margin-bottom:10px;'
+		}, [ E('label', { 'class': 'field-label', 'style': 'display:block;margin-bottom:4px;' }, 'Свои DNS-серверы (через пробел)'), dnsCustomInput ]);
+
+		var dnsApplyBtn = E('button', {
+			'id': 'zr-dns-apply-btn',
+			'class': 'cbi-button cbi-button-apply',
+			'click': ui.createHandlerFn(this, 'handleDnsApply')
+		}, 'Применить DNS');
 
 		var dnsRevertBox = E('div', {
 			'id': 'zr-dns-revert-box',
@@ -201,7 +236,9 @@ return view.extend({
 				'Провайдер может не только резать/бросать соединения (это лечит zapret2), но и напрямую подделывать DNS-ответы для конкретных доменов ' +
 				'(так было обнаружено с youtube.com в этой сети). Переключение на публичный DNS обходит именно это — отдельно от всего остального выше.'),
 			E('p', { 'style': 'margin:10px 0;' }, [ E('strong', {}, 'Сейчас: '), dnsStatusText ]),
-			dnsToggleBtn,
+			dnsRadios,
+			dnsCustomRow,
+			dnsApplyBtn,
 			dnsRevertBox
 		]);
 
@@ -291,23 +328,26 @@ return view.extend({
 		}, 1000);
 	},
 
-	handleDnsToggle: function (usingPublic) {
+	handleDnsApply: function () {
+		var radios = document.getElementsByName('zr-dns-mode');
+		var mode = 'isp';
+		for (var i = 0; i < radios.length; i++) {
+			if (radios[i].checked) { mode = radios[i].value; break; }
+		}
+		var customDns = document.getElementById('zr-dns-custom').value.trim();
+
+		if (mode === 'custom' && !customDns) {
+			ui.addNotification(null, E('p', {}, 'Введи хотя бы один DNS-сервер.'), 'error');
+			return;
+		}
+
 		var oldDns = this.prevDns;
-		var newDns = { usingPublic: usingPublic };
+		var newDns = { mode: mode, dns: customDns };
 
 		this.applyDns(newDns).then(L.bind(function () {
 			this.prevDns = newDns;
 			var text = document.getElementById('zr-dns-status-text');
-			var btn = document.getElementById('zr-dns-toggle-btn');
-			if (text) {
-				text.textContent = usingPublic
-					? ('Публичный DNS (' + PUBLIC_DNS + ') — обходит DNS-подмену провайдера')
-					: 'DNS провайдера (по умолчанию) — некоторые домены могут не резолвиться из-за блокировки на уровне DNS';
-			}
-			if (btn) {
-				btn.textContent = usingPublic ? 'Вернуть DNS провайдера' : 'Переключить на публичный DNS (8.8.8.8 / 1.1.1.1)';
-				btn.className = 'cbi-button ' + (usingPublic ? 'cbi-button-negative' : 'cbi-button-apply');
-			}
+			if (text) text.textContent = this.dnsLabel(newDns);
 			this.startDnsRevertCountdown(oldDns);
 		}, this)).catch(function (err) {
 			ui.addNotification(null, E('p', {}, 'Не удалось сменить DNS: ' + err), 'error');
@@ -350,17 +390,8 @@ return view.extend({
 				self.applyDns(oldDns).then(function () {
 					self.prevDns = oldDns;
 					var text = document.getElementById('zr-dns-status-text');
-					var btn = document.getElementById('zr-dns-toggle-btn');
-					if (text) {
-						text.textContent = oldDns.usingPublic
-							? ('Публичный DNS (' + PUBLIC_DNS + ') — обходит DNS-подмену провайдера')
-							: 'DNS провайдера (по умолчанию) — некоторые домены могут не резолвиться из-за блокировки на уровне DNS';
-					}
-					if (btn) {
-						btn.textContent = oldDns.usingPublic ? 'Вернуть DNS провайдера' : 'Переключить на публичный DNS (8.8.8.8 / 1.1.1.1)';
-						btn.className = 'cbi-button ' + (oldDns.usingPublic ? 'cbi-button-negative' : 'cbi-button-apply');
-					}
-					ui.addNotification(null, E('p', {}, 'DNS автоматически откачен.'), 'warning');
+					if (text) text.textContent = self.dnsLabel(oldDns);
+					ui.addNotification(null, E('p', {}, 'DNS автоматически откачен (лучше перезагрузить страницу, чтобы переключатели совпадали).'), 'warning');
 				});
 				return;
 			}

@@ -15,7 +15,8 @@
 				"/opt/zapret2/sync_config.sh*": [ "exec" ],
 				"/opt/zapret2/update-pkg.sh*": [ "exec" ],
 				"/opt/zapret2/blockcheck2.sh*": [ "exec" ],
-				"/opt/zapretremix/run-test.sh*": [ "exec" ]
+				"/opt/zapretremix/run-test.sh*": [ "exec" ],
+				"/opt/zapretremix/dns-pool.txt": [ "read" ]
 			},
 			"uci": [ "zapret2", "dhcp", "network" ],
 			"ubus": {
@@ -25,7 +26,8 @@
 		"write": {
 			"file": {
 				"/opt/zapret2/config": [ "write" ],
-				"/opt/zapret2/ipset/*": [ "write" ]
+				"/opt/zapret2/ipset/*": [ "write" ],
+				"/opt/zapretremix/dns-pool.txt": [ "write" ]
 			},
 			"uci": [ "zapret2", "dhcp", "network" ]
 		}

@@ -1,0 +1,11 @@
+# ZapretRemix DNS pool — one server IP per line, # for comments.
+# Seeded on first install only; edit freely via the "Рекомендации" tab
+# or directly in /opt/zapretremix/dns-pool.txt — reinstalling ZapretRemix
+# will not overwrite this file once it exists.
+8.8.8.8
+8.8.4.4
+1.1.1.1
+1.0.0.1
+9.9.9.9
+208.67.222.222
+94.140.14.14

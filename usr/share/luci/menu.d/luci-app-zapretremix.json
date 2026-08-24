@@ -18,6 +18,12 @@
 		"action": { "type": "view", "path": "zapretremix/dashboard" }
 	},
 
+	"admin/services/zapretremix/recommend": {
+		"title": "Рекомендации",
+		"order": 15,
+		"action": { "type": "view", "path": "zapretremix/recommend" }
+	},
+
 	"admin/services/zapretremix/strategies": {
 		"title": "Стратегии",
 		"order": 20,
