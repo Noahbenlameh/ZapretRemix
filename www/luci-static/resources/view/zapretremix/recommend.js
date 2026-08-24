@@ -5,45 +5,38 @@
 'require ui';
 'require uci';
 'require view.zapret2.env as env_tools';
+'require view.zapretremix.shared as shared';
 
 var POOL_FILE = '/opt/zapretremix/dns-pool.txt';
 var PIN_BLOCKS_FILE = '/opt/zapretremix/pin-blocks.txt';
 var TEST_HOSTS_FILE = '/opt/zapretremix/test-hosts.txt';
 var TEST_OPT_FILE = '/opt/zapretremix/test-opt.txt';
 
-// Same 4 templatable presets as pins.js/strategies.js (v1_by_Routerich
-// excluded everywhere — too complex/hardcoded to safely templatize).
-// Duplicated here rather than shared via a common module, same tradeoff
-// as elsewhere in this app (only a couple of files need it).
-var STRATEGY_TITLES = {
-	default: 'По умолчанию',
-	v1_by_AnonymTsk: 'AnonymTsk v1',
-	v1_by_Schiz23: 'Schiz23 v1',
-	v2_by_Schiz23: 'Schiz23 v2'
-};
+// Presets/templates/domain-family sets now live in shared.js (used by
+// pins.js and strategies.js too) so a preset or a family list only needs
+// updating in one place. Kept the AnonymTsk-before-Schiz23 try order here —
+// AnonymTsk tends to fix UDP/QUIC-heavy services (Discord/Telegram) that the
+// Schiz23 variants often don't, worth trying early.
+var STRATEGY_TITLES = shared.STRATEGY_TITLES;
 var TEST_ORDER = [ 'default', 'v1_by_AnonymTsk', 'v1_by_Schiz23', 'v2_by_Schiz23' ];
-var PIN_TEMPLATES = {
-	default:
-		'--filter-tcp=80\n--filter-l7=http <HOSTLIST>\n--payload=http_req\n--lua-desync=fake:blob=fake_default_http:tcp_md5\n--lua-desync=multisplit:pos=method+2\n\n' +
-		'--new\n--filter-tcp=443\n--filter-l7=tls <HOSTLIST>\n--payload=tls_client_hello\n--lua-desync=fake:blob=fake_default_tls:tcp_md5:tcp_seq=-10000\n--lua-desync=multidisorder:pos=1,midsld\n\n' +
-		'--new\n--filter-udp=443\n--filter-l7=quic <HOSTLIST_NOAUTO>\n--payload=quic_initial\n--lua-desync=fake:blob=fake_default_quic:repeats=6',
-	v1_by_Schiz23:
-		'--filter-tcp=80\n--filter-l7=http <HOSTLIST>\n--payload=http_req\n--lua-desync=fake:blob=fake_default_http:tcp_md5\n--lua-desync=multisplit:pos=method+2\n\n' +
-		'--new\n--filter-tcp=443\n--filter-l7=tls <HOSTLIST>\n--lua-desync=fake:blob=fake_default_tls:ip_ttl=1:ip6_ttl=1:tls_mod=rnd,rndsni,padencap\n--lua-desync=multidisorder:payload=tls_client_hello:pos=3\n\n' +
-		'--new\n--filter-udp=443\n--filter-l7=quic <HOSTLIST_NOAUTO>\n--lua-desync=fake:blob=fake_default_quic:repeats=11:payload=all:out_range=-d10',
-	v2_by_Schiz23:
-		'--filter-tcp=80\n--filter-l7=http <HOSTLIST>\n--payload=http_req\n--lua-desync=fake:blob=fake_default_http:tcp_md5\n--lua-desync=multisplit:pos=method+2\n\n' +
-		'--new\n--filter-tcp=443\n--filter-l7=tls <HOSTLIST>\n--payload=tls_client_hello\n--lua-desync=multidisorder:payload=tls_client_hello:pos=100,midsld,sniext+1,endhost-2,-10\n--lua-desync=send:sni=.microsoft\n\n' +
-		'--new\n--filter-udp=443\n--filter-l7=quic <HOSTLIST_NOAUTO>\n--payload=quic_initial\n--lua-desync=fake:blob=fake_default_quic:repeats=11',
-	v1_by_AnonymTsk:
-		'--blob=blob_tls_clienthello_www_google_com:@/opt/zapret2/files/fake/tls_clienthello_www_google_com.bin\n--blob=blob_quic_initial_www_google_com:@/opt/zapret2/files/fake/quic_initial_www_google_com.bin\n\n' +
-		'--filter-tcp=443,80\n--filter-l7=http,tls <HOSTLIST>\n--payload=tls_client_hello\n--lua-desync=fake:blob=fake_default_tls:tls_mod=rnd,dupsid,sni=www.google.com:tcp_ts=-1000\n--lua-desync=multidisorder:pos=1,midsld,sniext+1,endhost-2,-10:seqovl=1:seqovl_pattern=blob_tls_clienthello_www_google_com:tcp_ts_up\n--payload=http_req\n--lua-desync=http_methodeol:badsum\n\n' +
-		'--new\n--filter-udp=443\n--filter-l7=quic <HOSTLIST_NOAUTO>\n--payload=quic_initial\n--lua-desync=fake:blob=blob_quic_initial_www_google_com:repeats=11'
-};
 
 function fillPinTemplate(presetKey, hostFile) {
-	var tmpl = PIN_TEMPLATES[presetKey] || PIN_TEMPLATES.default;
-	return tmpl.replace(/<HOSTLIST_NOAUTO>/g, '--hostlist=' + hostFile).replace(/<HOSTLIST>/g, '--hostlist=' + hostFile);
+	var tmpl = shared.PIN_TEMPLATES[presetKey] || shared.PIN_TEMPLATES.default;
+	return shared.fillHostlist(tmpl, hostFile);
+}
+
+// If the checked domain is a known member of one of shared.FAMILY_PRESETS,
+// return that family so we can suggest testing/pinning the whole group
+// instead of just the one domain (e.g. youtube.com's video actually comes
+// from googlevideo.com, not youtube.com itself).
+function detectFamily(domain) {
+	var d = domain.toLowerCase();
+	var keys = Object.keys(shared.FAMILY_PRESETS);
+	for (var i = 0; i < keys.length; i++) {
+		var fam = shared.FAMILY_PRESETS[keys[i]];
+		if (fam.domains.indexOf(d) !== -1) return fam;
+	}
+	return null;
 }
 
 function parseLines(text) {
@@ -334,12 +327,37 @@ return view.extend({
 		parts.push(E('h3', { 'style': 'margin-top:20px;' }, 'Стратегия'));
 
 		if (curlResult && curlResult.code !== 0 && testIp) {
+			var family = detectFamily(domain);
+			var poolText = family ? family.domains.join('\n') : domain;
+
 			parts.push(E('p', { 'class': 'cbi-value-description' },
-				'Реально проверим каждую из наших стратегий против этого домена (не статичная подсказка) — по очереди применяем, тестируем, откатываем. ' +
-				'Это займёт около 30-40 секунд, и на это время у остальных в доме временно пропадёт общий обход блокировок — тестируем только этот один домен.'));
+				'Реально проверим каждую из наших стратегий (не статичная подсказка) — по очереди применяем, тестируем, откатываем. ' +
+				'Это займёт около 30-40 секунд на домен, и на это время у остальных в доме временно пропадёт общий обход блокировок.'));
+
+			if (family) {
+				parts.push(E('p', { 'style': 'color:#369;' },
+					'Похоже, это часть сервиса «' + family.title + '» — сам сайт и то, что он реально загружает (видео/CDN/API), часто живут на разных ' +
+					'доменах с разным DNS. Ниже уже подставлена вся группа — можно проверить и закрепить её целиком одним действием, ' +
+					'а не гадать по одному домену за раз.'));
+			}
+
+			parts.push(E('div', { 'style': 'margin:10px 0;' }, [
+				E('label', { 'class': 'field-label', 'style': 'display:block;margin-bottom:6px;' }, 'Домены для теста (можно отредактировать, по одному на строку)'),
+				E('textarea', { 'id': 'zr-strat-pool', 'rows': 4, 'style': 'width:100%;max-width:420px;font-family:monospace;' }, poolText),
+				E('div', { 'style': 'display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;' },
+					Object.keys(shared.FAMILY_PRESETS).map(function (key) {
+						var fam = shared.FAMILY_PRESETS[key];
+						return E('button', {
+							'class': 'cbi-button', 'type': 'button',
+							'click': function () { document.getElementById('zr-strat-pool').value = fam.domains.join('\n'); }
+						}, 'Набор: ' + fam.title);
+					})
+				)
+			]));
+
 			parts.push(E('div', { 'style': 'margin:10px 0;' }, E('button', {
 				'class': 'cbi-button cbi-button-apply',
-				'click': ui.createHandlerFn(this, 'handleTestStrategies', domain, testIp)
+				'click': ui.createHandlerFn(this, 'handleTestStrategiesClick', domain, testIp)
 			}, '▶ Протестировать стратегии автоматически')));
 			parts.push(E('div', { 'id': 'zr-strat-test-progress' }));
 		} else if (curlResult && curlResult.code === 0) {
@@ -356,7 +374,21 @@ return view.extend({
 		parts.forEach(function (p) { box.appendChild(p); });
 	},
 
-	handleTestStrategies: function (domain, testIp) {
+	handleTestStrategiesClick: function (primaryDomain, testIp) {
+		var pool = shared.parseDomains(document.getElementById('zr-strat-pool').value);
+		if (pool.indexOf(primaryDomain) === -1) pool.unshift(primaryDomain);
+		this.handleTestStrategies(pool, primaryDomain, testIp);
+	},
+
+	// Applies each preset once and curl-tests every domain in the pool against
+	// it. Only the primaryDomain (the one actually diagnosed above) gets its
+	// curl pinned to testIp via --resolve — that IP was specifically vetted to
+	// rule out DNS issues for THAT domain. The rest of the pool is tested
+	// plain (system DNS): if one of them doesn't even resolve, that's a
+	// separate DNS problem to fix on its own (e.g. a per-domain DNS override
+	// on Закреплённые), not something strategy-testing can tell apart from a
+	// DPI block — the result will just show as a failing code either way.
+	handleTestStrategies: function (pool, primaryDomain, testIp) {
 		var progress = document.getElementById('zr-strat-test-progress');
 		var self = this;
 		var results = [];
@@ -366,10 +398,22 @@ return view.extend({
 			progress.appendChild(node);
 		}
 
+		function curlOne(domain) {
+			var cmd = (domain === primaryDomain)
+				? 'curl --resolve ' + domain + ':443:' + testIp + ' -o /dev/null -s -S --max-time 5 https://' + domain + '/ 2>&1; echo "EXITCODE=$?"'
+				: 'curl -o /dev/null -s -S --max-time 5 https://' + domain + '/ 2>&1; echo "EXITCODE=$?"';
+			return fs.exec('/bin/busybox', [ 'sh', '-c', cmd ]).then(function (res) {
+				var out = (res && res.stdout) || '';
+				var m = /EXITCODE=(\d+)/.exec(out);
+				var code = m ? parseInt(m[1], 10) : -1;
+				return { domain: domain, code: code, ok: code === 0 };
+			});
+		}
+
 		setProgress(E('p', { 'style': 'color:#888;' }, 'Сохраняю текущую конфигурацию...'));
 
 		fs.exec('/opt/zapretremix/test-strategy.sh', [ 'backup' ])
-			.then(function () { return fs.write(TEST_HOSTS_FILE, domain + '\n'); })
+			.then(function () { return fs.write(TEST_HOSTS_FILE, pool.join('\n') + '\n'); })
 			.then(function () {
 				return TEST_ORDER.reduce(function (chain, presetKey) {
 					return chain.then(function () {
@@ -378,15 +422,14 @@ return view.extend({
 						return fs.write(TEST_OPT_FILE, opt)
 							.then(function () { return fs.exec('/opt/zapretremix/test-strategy.sh', [ 'apply' ]); })
 							.then(function () {
-								return fs.exec('/bin/busybox', [ 'sh', '-c',
-									'curl --resolve ' + domain + ':443:' + testIp + ' -o /dev/null -s -S --max-time 5 https://' + domain + '/ 2>&1; echo "EXITCODE=$?"'
-								]);
+								return pool.reduce(function (innerChain, domain) {
+									return innerChain.then(function (acc) {
+										return curlOne(domain).then(function (r) { acc.push(r); return acc; });
+									});
+								}, Promise.resolve([]));
 							})
-							.then(function (res) {
-								var out = (res && res.stdout) || '';
-								var m = /EXITCODE=(\d+)/.exec(out);
-								var code = m ? parseInt(m[1], 10) : -1;
-								results.push({ preset: presetKey, code: code, ok: code === 0 });
+							.then(function (perDomain) {
+								results.push({ preset: presetKey, perDomain: perDomain, ok: perDomain.every(function (r) { return r.ok; }) });
 							});
 					});
 				}, Promise.resolve());
@@ -395,33 +438,38 @@ return view.extend({
 				setProgress(E('p', { 'style': 'color:#888;' }, 'Возвращаю обычную конфигурацию...'));
 				return fs.exec('/opt/zapretremix/test-strategy.sh', [ 'restore' ]);
 			})
-			.then(function () { self.renderStrategyTestResults(domain, results, progress); })
+			.then(function () { self.renderStrategyTestResults(pool, results, progress); })
 			.catch(function (err) {
 				fs.exec('/opt/zapretremix/test-strategy.sh', [ 'restore' ]).catch(function () {});
 				setProgress(E('p', { 'style': 'color:#c33;' }, 'Ошибка теста (конфигурация возвращена обратно): ' + err));
 			});
 	},
 
-	renderStrategyTestResults: function (domain, results, progress) {
+	renderStrategyTestResults: function (pool, results, progress) {
 		progress.innerHTML = '';
 		var anyWorked = results.some(function (r) { return r.ok; });
 
 		progress.appendChild(E('p', { 'style': 'font-weight:bold;margin:10px 0 6px;' },
-			anyWorked ? 'Готово — есть рабочие варианты:' : 'Готово — ни одна из наших стратегий не помогла.'));
+			anyWorked ? 'Готово — есть рабочие варианты:' : 'Готово — ни одна из наших стратегий не помогла для всей группы целиком.'));
 
 		results.forEach(L.bind(function (r) {
+			var okCount = r.perDomain.filter(function (d) { return d.ok; }).length;
 			var badge = r.ok
-				? E('span', { 'style': 'color:#3a3;font-weight:bold;' }, '✓ Работает')
-				: E('span', { 'style': 'color:#c33;' }, '✗ Код ' + r.code);
-			var row = E('div', { 'style': 'display:flex;align-items:center;gap:14px;padding:6px 0;border-bottom:1px solid #3335;' }, [
+				? E('span', { 'style': 'color:#3a3;font-weight:bold;' }, '✓ Работает (' + okCount + '/' + r.perDomain.length + ')')
+				: E('span', { 'style': 'color:#c33;' }, '✗ ' + okCount + '/' + r.perDomain.length);
+			var row = E('div', { 'style': 'display:flex;align-items:center;gap:14px;padding:6px 0;border-bottom:1px solid #3335;flex-wrap:wrap;' }, [
 				E('span', { 'style': 'flex:1;' }, STRATEGY_TITLES[r.preset] || r.preset),
 				badge
 			]);
-			if (r.ok) {
+			if (pool.length > 1) {
+				row.appendChild(E('div', { 'style': 'flex-basis:100%;font-family:monospace;font-size:11px;color:#888;' },
+					r.perDomain.map(function (d) { return d.domain + ':' + (d.ok ? 'ok' : d.code); }).join('  ')));
+			}
+			if (okCount > 0) {
 				row.appendChild(E('button', {
 					'class': 'cbi-button cbi-button-apply',
-					'click': ui.createHandlerFn(this, 'handlePinResult', domain, r.preset)
-				}, 'Закрепить'));
+					'click': ui.createHandlerFn(this, 'handlePinResult', pool, r.preset)
+				}, r.ok ? 'Закрепить всю группу' : 'Закрепить всё равно'));
 			}
 			progress.appendChild(row);
 		}, this));
@@ -433,31 +481,28 @@ return view.extend({
 	},
 
 	// pins.json entries are { id, domains: [...] } as of the multi-domain pin
-	// change (see pins.js) — this only ever creates single-domain pins from a
-	// test result, but reads/writes the current shape so it stays compatible
-	// with entries edited afterward on the Закреплённые tab.
-	handlePinResult: function (domain, presetKey) {
+	// change (see pins.js) — this now pins the whole tested pool (not just the
+	// one diagnosed domain) under a single entry, using shared.normalizePin
+	// to stay compatible with entries in the older single-`domain` shape.
+	handlePinResult: function (domains, presetKey) {
 		var self = this;
-		var id = domain.replace(/[^a-zA-Z0-9.\-]/g, '_');
+		var id = shared.safeName(domains[0]);
 		fs.read('/opt/zapretremix/pins.json').catch(function () { return '[]'; }).then(function (text) {
-			var pins;
-			try { pins = JSON.parse(text); } catch (e) { pins = []; }
-			var exists = pins.some(function (p) {
-				return (p.id && p.id === id) || p.domain === domain ||
-					(Array.isArray(p.domains) && p.domains.indexOf(domain) !== -1);
-			});
-			if (exists) {
-				ui.addNotification(null, E('p', {}, 'Этот домен уже закреплён — измени на вкладке «Закреплённые».'), 'warning');
+			var raw;
+			try { raw = JSON.parse(text); } catch (e) { raw = []; }
+			var pins = raw.map(shared.normalizePin);
+			if (pins.some(function (p) { return p.id === id || domains.some(function (d) { return p.domains.indexOf(d) !== -1; }); })) {
+				ui.addNotification(null, E('p', {}, 'Один из этих доменов уже закреплён — измени на вкладке «Закреплённые».'), 'warning');
 				return null;
 			}
-			pins.push({ id: id, domains: [ domain ], preset: presetKey, dns: '' });
+			pins.push({ id: id, domains: domains, preset: presetKey, dns: '' });
 			var pinFile = '/opt/zapretremix/pin-hosts/' + id + '.txt';
 			return fs.exec('/bin/busybox', [ 'mkdir', '-p', '/opt/zapretremix/pin-hosts' ])
-				.then(function () { return fs.write(pinFile, domain + '\n'); })
+				.then(function () { return fs.write(pinFile, domains.join('\n') + '\n'); })
 				.then(function () { return fs.write('/opt/zapretremix/pins.json', JSON.stringify(pins, null, 2)); })
 				.then(function () { return self.rebuildWithPins(pins); })
 				.then(function () {
-					ui.addNotification(null, E('p', {}, domain + ' закреплён со стратегией «' + STRATEGY_TITLES[presetKey] + '».'), 'info');
+					ui.addNotification(null, E('p', {}, domains.join(', ') + ' закреплены со стратегией «' + STRATEGY_TITLES[presetKey] + '».'), 'info');
 				});
 		}).catch(function (err) {
 			ui.addNotification(null, E('p', {}, 'Ошибка: ' + err), 'error');
@@ -466,10 +511,9 @@ return view.extend({
 
 	rebuildWithPins: function (pins) {
 		var extra = pins.map(function (pin) {
-			var firstDomain = (Array.isArray(pin.domains) && pin.domains.length) ? pin.domains[0] : pin.domain;
-			var id = pin.id || firstDomain.replace(/[^a-zA-Z0-9.\-]/g, '_');
-			var pinFile = '/opt/zapretremix/pin-hosts/' + id + '.txt';
-			return '--new\n' + fillPinTemplate(pin.preset, pinFile);
+			var norm = shared.normalizePin(pin);
+			var pinFile = '/opt/zapretremix/pin-hosts/' + norm.id + '.txt';
+			return '--new\n' + fillPinTemplate(norm.preset, pinFile);
 		}).join('\n\n');
 
 		return fs.write(PIN_BLOCKS_FILE, extra)
@@ -478,7 +522,7 @@ return view.extend({
 			})
 			.then(function (res) {
 				var m = /Strategy__(\S+)/.exec((res && res.stdout) || '');
-				var presetKey = (m && PIN_TEMPLATES[m[1]]) ? m[1] : 'default';
+				var presetKey = (m && shared.PIN_TEMPLATES[m[1]]) ? m[1] : 'default';
 				return fs.exec('/opt/zapretremix/rebuild-opt.sh', [ presetKey ]);
 			})
 			.then(function () { return fs.exec(env_tools.syncCfgPath, []); })

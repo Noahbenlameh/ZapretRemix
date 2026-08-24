@@ -5,6 +5,7 @@
 'require ui';
 'require uci';
 'require view.zapret2.env as env_tools';
+'require view.zapretremix.shared as shared';
 
 var PRESETS = [
 	{ key: 'default', title: 'По умолчанию', desc: 'Общего назначения: подмена TLS ClientHello + разбивка пакетов для HTTP/HTTPS, базовая обработка QUIC.' },
@@ -17,29 +18,12 @@ var PRESETS = [
 var REVERT_SECONDS = 20;
 var PINS_FILE = '/opt/zapretremix/pins.json';
 
-// Kept in sync with pins.js's PIN_TEMPLATES — duplicated rather than shared
-// via a common module, given only these two files need it. Needed here so
-// that applying a strategy globally doesn't wipe out pinned per-domain
-// blocks (set_cfg_nfqws_strat overwrites NFQWS2_OPT entirely with just the
-// clean global preset — pins have to be re-appended every time afterward).
-var PIN_TEMPLATES = {
-	default:
-		'--filter-tcp=80\n--filter-l7=http <HOSTLIST>\n--payload=http_req\n--lua-desync=fake:blob=fake_default_http:tcp_md5\n--lua-desync=multisplit:pos=method+2\n\n' +
-		'--new\n--filter-tcp=443\n--filter-l7=tls <HOSTLIST>\n--payload=tls_client_hello\n--lua-desync=fake:blob=fake_default_tls:tcp_md5:tcp_seq=-10000\n--lua-desync=multidisorder:pos=1,midsld\n\n' +
-		'--new\n--filter-udp=443\n--filter-l7=quic <HOSTLIST_NOAUTO>\n--payload=quic_initial\n--lua-desync=fake:blob=fake_default_quic:repeats=6',
-	v1_by_Schiz23:
-		'--filter-tcp=80\n--filter-l7=http <HOSTLIST>\n--payload=http_req\n--lua-desync=fake:blob=fake_default_http:tcp_md5\n--lua-desync=multisplit:pos=method+2\n\n' +
-		'--new\n--filter-tcp=443\n--filter-l7=tls <HOSTLIST>\n--lua-desync=fake:blob=fake_default_tls:ip_ttl=1:ip6_ttl=1:tls_mod=rnd,rndsni,padencap\n--lua-desync=multidisorder:payload=tls_client_hello:pos=3\n\n' +
-		'--new\n--filter-udp=443\n--filter-l7=quic <HOSTLIST_NOAUTO>\n--lua-desync=fake:blob=fake_default_quic:repeats=11:payload=all:out_range=-d10',
-	v2_by_Schiz23:
-		'--filter-tcp=80\n--filter-l7=http <HOSTLIST>\n--payload=http_req\n--lua-desync=fake:blob=fake_default_http:tcp_md5\n--lua-desync=multisplit:pos=method+2\n\n' +
-		'--new\n--filter-tcp=443\n--filter-l7=tls <HOSTLIST>\n--payload=tls_client_hello\n--lua-desync=multidisorder:payload=tls_client_hello:pos=100,midsld,sniext+1,endhost-2,-10\n--lua-desync=send:sni=.microsoft\n\n' +
-		'--new\n--filter-udp=443\n--filter-l7=quic <HOSTLIST_NOAUTO>\n--payload=quic_initial\n--lua-desync=fake:blob=fake_default_quic:repeats=11',
-	v1_by_AnonymTsk:
-		'--blob=blob_tls_clienthello_www_google_com:@/opt/zapret2/files/fake/tls_clienthello_www_google_com.bin\n--blob=blob_quic_initial_www_google_com:@/opt/zapret2/files/fake/quic_initial_www_google_com.bin\n\n' +
-		'--filter-tcp=443,80\n--filter-l7=http,tls <HOSTLIST>\n--payload=tls_client_hello\n--lua-desync=fake:blob=fake_default_tls:tls_mod=rnd,dupsid,sni=www.google.com:tcp_ts=-1000\n--lua-desync=multidisorder:pos=1,midsld,sniext+1,endhost-2,-10:seqovl=1:seqovl_pattern=blob_tls_clienthello_www_google_com:tcp_ts_up\n--payload=http_req\n--lua-desync=http_methodeol:badsum\n\n' +
-		'--new\n--filter-udp=443\n--filter-l7=quic <HOSTLIST_NOAUTO>\n--payload=quic_initial\n--lua-desync=fake:blob=blob_quic_initial_www_google_com:repeats=11'
-};
+// Needed here so that applying a strategy globally doesn't wipe out pinned
+// per-domain blocks (set_cfg_nfqws_strat overwrites NFQWS2_OPT entirely with
+// just the clean global preset — pins have to be re-appended every time
+// afterward). Templates now live in shared.js (also used by pins.js and
+// recommend.js) instead of being duplicated per-file.
+var PIN_TEMPLATES = shared.PIN_TEMPLATES;
 
 return view.extend({
 	prevRaw: null,
@@ -86,13 +70,9 @@ return view.extend({
 			var pins;
 			try { pins = JSON.parse(text); } catch (e) { pins = []; }
 			var extra = pins.map(function (pin) {
-				var tmpl = PIN_TEMPLATES[pin.preset] || PIN_TEMPLATES.default;
-				// pins.json entries are { id, domains: [...] } as of the
-				// multi-domain pin change; fall back to the older single-
-				// `domain` string shape for pins created before that.
-				var firstDomain = (Array.isArray(pin.domains) && pin.domains.length) ? pin.domains[0] : pin.domain;
-				var id = pin.id || firstDomain.replace(/[^a-zA-Z0-9.\-]/g, '_');
-				var pinFile = '/opt/zapretremix/pin-hosts/' + id + '.txt';
+				var norm = shared.normalizePin(pin);
+				var tmpl = PIN_TEMPLATES[norm.preset] || PIN_TEMPLATES.default;
+				var pinFile = '/opt/zapretremix/pin-hosts/' + norm.id + '.txt';
 				return '--new\n' + tmpl
 					.replace(/<HOSTLIST_NOAUTO>/g, '--hostlist=' + pinFile)
 					.replace(/<HOSTLIST>/g, '--hostlist=' + pinFile);
