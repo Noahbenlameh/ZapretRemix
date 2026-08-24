@@ -5,13 +5,22 @@
 'require ui';
 'require view.zapret2.env as env_tools';
 
+var OUT_FILE = '/tmp/zr-test-output.log';
+var DONE_MARK = '###ZRDONE###';
+var POLL_MS = 2000;
+var MAX_POLLS = 90; // 3 minutes safety cap
+
 return view.extend({
+	pollTimer: null,
+	pollCount: 0,
+
 	render: function () {
 		var domainInput = E('input', { 'type': 'text', 'id': 'zr-test-domain', 'placeholder': 'example.com', 'style': 'width:100%;max-width:420px;' });
 		var insecureCheck = E('input', { 'type': 'checkbox', 'id': 'zr-test-insecure' });
 
 		var runBtn = E('button', {
 			'class': 'cbi-button cbi-button-apply',
+			'id': 'zr-test-run-btn',
 			'click': ui.createHandlerFn(this, 'handleRun')
 		}, 'Быстрая проверка');
 
@@ -24,7 +33,8 @@ return view.extend({
 			E('h2', {}, 'ZapretRemix — Тест и анализ'),
 			E('p', { 'class': 'cbi-value-description' },
 				'Быстрая проверка: останавливает zapret2, проверяет TLS 1.2-соединение с доменом БЕЗ обхода (1 попытка, режим quick), запускает zapret2 обратно. ' +
-				'Это не полный blockcheck2.sh (тот может идти 10-30+ минут) — для глубокого анализа используй его по SSH напрямую.'),
+				'Запускается в фоне на роутере, страница просто опрашивает результат — сама проверка обычно занимает 15-60 секунд. ' +
+				'Это не полный blockcheck2.sh (тот перебирает много стратегий и может идти 10-30+ минут) — для глубокого анализа запускай его по SSH напрямую.'),
 			E('div', { 'style': 'margin:14px 0;' }, [
 				E('label', { 'class': 'field-label', 'style': 'display:block;margin-bottom:6px;' }, 'Домен'),
 				domainInput
@@ -53,31 +63,68 @@ return view.extend({
 		var domain = this.sanitizeDomain(rawDomain);
 		var insecure = document.getElementById('zr-test-insecure').checked;
 		var out = document.getElementById('zr-test-output');
+		var btn = document.getElementById('zr-test-run-btn');
 
 		if (!domain) {
 			out.textContent = 'Введи корректный домен.';
 			return;
 		}
 
-		out.textContent = 'Останавливаю zapret2 и запускаю проверку (может занять до минуты)...';
+		if (this.pollTimer) {
+			clearInterval(this.pollTimer);
+			this.pollTimer = null;
+		}
+
+		btn.disabled = true;
+		out.textContent = 'Запущено в фоне, жду результат...';
 
 		var prefix = insecure ? 'CURL_OPT=-k ' : '';
-		var cmd = 'printf "' + this.buildAnswers(domain) + '" | ' + prefix + env_tools.appDir + '/blockcheck2.sh';
+		var testCmd = 'printf "' + this.buildAnswers(domain) + '" | ' + prefix + env_tools.appDir + '/blockcheck2.sh';
 
-		fs.exec(env_tools.execPath, [ 'stop' ])
+		// everything (stop, test, start, done-marker) runs as one detached
+		// background job so the *launching* fs.exec call returns instantly —
+		// avoids the LuCI/XHR request timeout that a single blocking call hit.
+		var bg = '{ ' + env_tools.execPath + ' stop; ' + testCmd + '; ' + env_tools.execPath + ' start; ' +
+			'echo ' + DONE_MARK + '; } >' + OUT_FILE + ' 2>&1 &';
+		var launch = 'rm -f ' + OUT_FILE + '; ' + bg;
+
+		fs.exec('/bin/busybox', [ 'sh', '-c', launch ])
 			.then(L.bind(function () {
-				return fs.exec('/bin/busybox', [ 'sh', '-c', cmd ]);
-			}, this))
-			.then(L.bind(function (res) {
-				out.textContent = (res && (res.stdout || res.stderr)) || '(пустой вывод)';
+				this.pollCount = 0;
+				this.pollTimer = setInterval(L.bind(this.pollOutput, this), POLL_MS);
 			}, this))
 			.catch(function (err) {
-				out.textContent = 'Ошибка: ' + err;
-			})
-			.then(L.bind(function () {
-				return fs.exec(env_tools.execPath, [ 'start' ]);
+				out.textContent = 'Не удалось запустить: ' + err;
+				btn.disabled = false;
+			});
+	},
+
+	pollOutput: function () {
+		var out = document.getElementById('zr-test-output');
+		var btn = document.getElementById('zr-test-run-btn');
+		this.pollCount += 1;
+
+		fs.exec('/bin/busybox', [ 'sh', '-c', 'cat ' + OUT_FILE + ' 2>/dev/null' ])
+			.then(L.bind(function (res) {
+				var text = (res && res.stdout) || '';
+				var done = text.indexOf(DONE_MARK) !== -1;
+				out.textContent = text.replace(DONE_MARK, '').trim() || 'Запущено, жду вывод...';
+
+				if (done || this.pollCount >= MAX_POLLS) {
+					clearInterval(this.pollTimer);
+					this.pollTimer = null;
+					btn.disabled = false;
+					if (!done) {
+						out.textContent += '\n\n(превышено время ожидания — проверь вручную по SSH, что происходит)';
+					}
+				}
 			}, this))
-			.catch(function () { /* best effort restart */ });
+			.catch(L.bind(function (err) {
+				clearInterval(this.pollTimer);
+				this.pollTimer = null;
+				btn.disabled = false;
+				out.textContent = 'Ошибка опроса: ' + err;
+			}, this));
 	},
 
 	handleSaveApply: null,
