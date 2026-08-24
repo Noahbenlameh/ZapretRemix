@@ -9,7 +9,10 @@
 
 var PROFILES_FILE = '/opt/zapretremix/proxy-profiles.json';
 var PORT_BLOCKS_FILE = '/opt/zapretremix/pin-ports-blocks.txt';
-var TEST_OPT_FILE = '/opt/zapretremix/test-opt.txt';
+// Deliberately separate from recommend.js's test-opt.txt (domain strategy
+// test) — sharing one file risked the two tests clobbering each other's
+// in-flight content if both ran around the same time.
+var TEST_OPT_FILE = '/opt/zapretremix/port-test-opt.txt';
 
 function newId() {
 	return 'p' + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);

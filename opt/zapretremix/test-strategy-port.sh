@@ -4,7 +4,7 @@
 # restore. Usage:
 #   test-strategy-port.sh backup           — save current NFQWS2_OPT + NFQWS2_PORTS_TCP
 #   test-strategy-port.sh apply <port>     — add <port> to the queued port list,
-#                                             set NFQWS2_OPT from test-opt.txt, sync, restart
+#                                             set NFQWS2_OPT from port-test-opt.txt, sync, restart
 #   test-strategy-port.sh restore          — restore both backed-up values, sync, restart, cleanup
 #
 # Unlike domain pins (which only ever touch NFQWS2_OPT, since 80/443 are
@@ -24,7 +24,12 @@ set -e
 ACTION="$1"
 BACKUP_OPT=/opt/zapretremix/portopt-backup.txt
 BACKUP_PORTS=/opt/zapretremix/portlist-backup.txt
-TESTOPT=/opt/zapretremix/test-opt.txt
+# Deliberately a different filename from test-strategy.sh's TESTOPT
+# (test-opt.txt) — that one's used by the domain-based strategy test in
+# Рекомендации. If both tests ever ran around the same time (two browser
+# tabs), sharing one file would let them clobber each other's in-flight
+# test content mid-loop.
+TESTOPT=/opt/zapretremix/port-test-opt.txt
 
 case "$ACTION" in
 	backup)

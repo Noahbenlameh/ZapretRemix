@@ -167,7 +167,12 @@ return view.extend({
 
 	handlePoolAdd: function () {
 		var input = document.getElementById('zr-pool-add');
-		var v = input.value.trim();
+		// Pool entries end up interpolated directly into a `sh -c 'nslookup
+		// domain SERVER'` string in queryDns() below — unlike the domain
+		// argument (run through sanitizeDomain), this value came straight from
+		// the input box. Strip to an IP/hostname-safe charset before it can
+		// ever reach a shell string, same principle as sanitizeDomain.
+		var v = input.value.trim().replace(/[^a-zA-Z0-9.:\-]/g, '');
 		if (!v || this.pool.indexOf(v) !== -1) return;
 		this.pool.push(v);
 		this.savePool().then(L.bind(function () {

@@ -29,7 +29,8 @@
 				"/opt/zapretremix/proxy-profiles.json": [ "read" ],
 				"/opt/zapretremix/pin-ports-blocks.txt": [ "read" ],
 				"/opt/zapretremix/portopt-backup.txt": [ "read" ],
-				"/opt/zapretremix/portlist-backup.txt": [ "read" ]
+				"/opt/zapretremix/portlist-backup.txt": [ "read" ],
+				"/opt/zapretremix/port-test-opt.txt": [ "read" ]
 			},
 			"uci": [ "zapret2", "dhcp", "network" ],
 			"ubus": {
@@ -48,7 +49,8 @@
 				"/opt/zapretremix/test-opt.txt": [ "write" ],
 				"/opt/zapretremix/opt-backup.txt": [ "write" ],
 				"/opt/zapretremix/proxy-profiles.json": [ "write" ],
-				"/opt/zapretremix/pin-ports-blocks.txt": [ "write" ]
+				"/opt/zapretremix/pin-ports-blocks.txt": [ "write" ],
+				"/opt/zapretremix/port-test-opt.txt": [ "write" ]
 			},
 			"uci": [ "zapret2", "dhcp", "network" ]
 		}

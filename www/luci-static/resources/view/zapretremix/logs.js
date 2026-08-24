@@ -35,7 +35,12 @@ return view.extend({
 			E('h2', {}, 'ZapretRemix — Логи'),
 			E('p', { 'class': 'cbi-value-description', 'id': 'zr-log-status' },
 				'Логирование сейчас: ' + (enabled ? 'включено' : 'выключено')),
-			E('div', { 'style': 'display:flex;gap:8px;margin-bottom:10px;' }, [ toggleBtn, refreshBtn ]),
+			E('p', { 'class': 'cbi-value-description' },
+				'Файл лога лежит в /tmp — это оперативная память роутера, а не флешка/файловая система: он не занимает постоянное место на устройстве ' +
+				'и полностью пропадает при перезагрузке. Но пока роутер работает, лог может расти без ограничения, если оставить логирование включённым ' +
+				'надолго — это ест именно ОЗУ, а не "место на роутере" в привычном смысле, но тоже стоит выключать после диагностики, а не держать постоянно.'),
+			E('div', { 'style': 'display:flex;gap:8px;margin-bottom:6px;' }, [ toggleBtn, refreshBtn ]),
+			E('p', { 'id': 'zr-log-size', 'class': 'cbi-value-description', 'style': 'margin-bottom:6px;' }, ''),
 			logBox
 		]);
 
@@ -58,6 +63,13 @@ return view.extend({
 	handleRefresh: function () {
 		var box = this.logBox;
 		box.textContent = 'Загрузка...';
+		var sizeEl = document.getElementById('zr-log-size');
+		fs.exec('/bin/busybox', [ 'sh', '-c', 'du -sh /tmp/zapret2+*.log 2>/dev/null | tail -n 1' ])
+			.then(function (res) {
+				var sizeText = ((res && res.stdout) || '').trim();
+				if (sizeEl) sizeEl.textContent = sizeText ? ('Текущий размер файла лога: ' + sizeText.split(/\s+/)[0]) : '';
+			})
+			.catch(function () {});
 		fs.exec('/bin/busybox', [ 'sh', '-c', 'cat /tmp/zapret2+*.log 2>/dev/null | tail -n 300' ])
 			.then(function (res) {
 				var text = (res && res.stdout) || '';
