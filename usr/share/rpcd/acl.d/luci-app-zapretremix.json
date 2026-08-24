@@ -17,7 +17,7 @@
 				"/opt/zapret2/blockcheck2.sh*": [ "exec" ],
 				"/opt/zapretremix/run-test.sh*": [ "exec" ]
 			},
-			"uci": [ "zapret2", "dhcp" ],
+			"uci": [ "zapret2", "dhcp", "network" ],
 			"ubus": {
 				"luci": [ "getInitList", "setInitAction" ]
 			}
@@ -27,7 +27,7 @@
 				"/opt/zapret2/config": [ "write" ],
 				"/opt/zapret2/ipset/*": [ "write" ]
 			},
-			"uci": [ "zapret2", "dhcp" ]
+			"uci": [ "zapret2", "dhcp", "network" ]
 		}
 	}
 }
