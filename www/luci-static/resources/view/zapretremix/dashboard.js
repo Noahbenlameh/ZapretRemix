@@ -382,13 +382,19 @@ return view.extend({
 		}
 
 		this.stageDns({ mode: mode, dns: customDns });
-		// Hand off to LuCI's own built-in apply flow: commits the staged uci
-		// change, reloads the network stack, and — because we pass `true` —
-		// watches connectivity and auto-rolls-back if this device becomes
-		// unreachable within the configured window. Same mechanism as the
-		// native "Save & Apply" button (confirmed working on this router;
-		// our own uci.save() hit a permission wall this doesn't).
-		ui.changes.apply(true);
+		// uci.set() above is purely local to the browser — uci.save() is what
+		// actually pushes the staged change to the router's server-side
+		// changeset (that step partially worked before: it's why "Unsaved
+		// Changes" showed up even while our old code errored). Tolerate a
+		// save() error rather than aborting — whatever DID make it to the
+		// server stays staged — then hand off to LuCI's own apply flow, which
+		// commits, reloads the network stack, and (with `true`) watches
+		// connectivity with a server-side auto-rollback if this device
+		// becomes unreachable. Same mechanism the native "Save & Apply"
+		// button already uses successfully on this router.
+		uci.save().catch(function () {}).then(function () {
+			ui.changes.apply(true);
+		});
 	},
 
 	handleSaveApply: null,
