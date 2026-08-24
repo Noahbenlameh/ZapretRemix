@@ -77,6 +77,38 @@ var FAMILY_PRESETS = {
 	twitter: {
 		title: 'Twitter / X',
 		domains: [ 'twitter.com', 'x.com', 'twimg.com', 't.co' ]
+	},
+	facebook: {
+		title: 'Facebook',
+		domains: [ 'facebook.com', 'www.facebook.com', 'm.facebook.com', 'fbcdn.net', 'fbsbx.com' ]
+	},
+	whatsapp: {
+		title: 'WhatsApp',
+		domains: [ 'whatsapp.com', 'www.whatsapp.com', 'whatsapp.net', 'web.whatsapp.com' ]
+	},
+	telegram: {
+		title: 'Telegram (веб/сайт)',
+		domains: [ 'telegram.org', 'web.telegram.org', 't.me', 'telegram.me' ]
+	},
+	netflix: {
+		title: 'Netflix',
+		domains: [ 'netflix.com', 'www.netflix.com', 'nflxvideo.net', 'nflximg.net', 'nflxext.com' ]
+	},
+	spotify: {
+		title: 'Spotify',
+		domains: [ 'spotify.com', 'www.spotify.com', 'open.spotify.com', 'scdn.co', 'spotifycdn.com' ]
+	},
+	twitch: {
+		title: 'Twitch',
+		domains: [ 'twitch.tv', 'www.twitch.tv', 'ttvnw.net', 'jtvnw.net' ]
+	},
+	steam: {
+		title: 'Steam',
+		domains: [ 'steampowered.com', 'store.steampowered.com', 'steamcommunity.com', 'steamstatic.com', 'steamcontent.com' ]
+	},
+	linkedin: {
+		title: 'LinkedIn',
+		domains: [ 'linkedin.com', 'www.linkedin.com', 'licdn.com' ]
 	}
 };
 
