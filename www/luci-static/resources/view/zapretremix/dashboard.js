@@ -92,9 +92,14 @@ return view.extend({
 	// the native button already proved works.
 	stageDns: function (cfg) {
 		if (cfg.mode === 'isp') {
-			// don't touch 'dns' at all — with peerdns=1, OpenWrt ignores the
-			// static dns list regardless of whatever stale value sits there.
-			uci.set('network', 'wan', 'peerdns', '1');
+			// Match what the native LuCI page does when you check "Use DNS
+			// servers advertised by peer": it doesn't write peerdns='1', it
+			// removes the override options entirely so the (enabled-by-
+			// default) behavior applies. Earlier attempt used set(...,'')
+			// hoping it's equivalent to unset per the uci.js docs — evidently
+			// it isn't, in practice, on this router. Use real null.
+			uci.set('network', 'wan', 'peerdns', null);
+			uci.set('network', 'wan', 'dns', null);
 		} else {
 			uci.set('network', 'wan', 'peerdns', '0');
 			var raw = (cfg.mode === 'public') ? PUBLIC_DNS : (cfg.mode === 'isp_ip') ? this.ispDns.join(' ') : cfg.dns;
