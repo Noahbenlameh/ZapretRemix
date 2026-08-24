@@ -135,7 +135,15 @@ return view.extend({
 		var running = this.isRunning(psOutput);
 		var cfg = this.getCurrentConfig();
 		this.prevValues = cfg;
-		this.ispDns = data[3] || [];
+
+		// ubus's dns-server field reflects whatever is CURRENTLY effective on
+		// the interface — once our own override (peerdns=0) is active, it just
+		// echoes that override back, not what the ISP actually handed out.
+		// Only trust it while peerdns=1 (auto/ISP mode) is genuinely active.
+		var peerdnsNow = uci.get('network', 'wan', 'peerdns');
+		this.ispDnsAvailable = (peerdnsNow !== '0');
+		this.ispDns = this.ispDnsAvailable ? (data[3] || []) : [];
+
 		var dnsCfg = this.getDnsConfig();
 		this.prevDns = dnsCfg;
 
@@ -200,10 +208,15 @@ return view.extend({
 
 		var dnsStatusText = E('span', { 'id': 'zr-dns-status-text' }, this.dnsLabel(dnsCfg));
 
+		var ispIpDisabled = !this.ispDnsAvailable || !this.ispDns.length;
+		var ispIpLabel = this.ispDnsAvailable
+			? ('DNS провайдера по IP (' + (this.ispDns.join(', ') || 'не определён') + ')')
+			: 'DNS провайдера по IP (сначала включи «DNS провайдера (авто)» и сохрани, чтобы его определить)';
+
 		var dnsModeOptions = [
 			{ key: 'isp', label: 'DNS провайдера (авто)' },
 			{ key: 'public', label: 'Публичный DNS (8.8.8.8, 1.1.1.1)' },
-			{ key: 'isp_ip', label: 'DNS провайдера по IP (' + (this.ispDns.join(', ') || 'не определён') + ')' },
+			{ key: 'isp_ip', label: ispIpLabel, disabled: ispIpDisabled },
 			{ key: 'custom', label: 'Свой DNS' }
 		];
 		var dnsRadios = E('div', { 'id': 'zr-dns-radios', 'style': 'display:flex;gap:18px;flex-wrap:wrap;margin:10px 0;' },
@@ -214,7 +227,8 @@ return view.extend({
 					}
 				};
 				if (opt.key === dnsCfg.mode) attrs.checked = 'checked';
-				return E('label', { 'style': 'display:flex;align-items:center;gap:6px;' }, [
+				if (opt.disabled) attrs.disabled = 'disabled';
+				return E('label', { 'style': 'display:flex;align-items:center;gap:6px;' + (opt.disabled ? 'opacity:0.5;' : '') }, [
 					E('input', attrs),
 					opt.label
 				]);

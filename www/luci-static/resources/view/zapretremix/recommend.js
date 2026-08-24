@@ -3,6 +3,7 @@
 'require view';
 'require fs';
 'require ui';
+'require uci';
 'require view.zapret2.env as env_tools';
 
 var POOL_FILE = '/opt/zapretremix/dns-pool.txt';
@@ -42,7 +43,8 @@ return view.extend({
 	load: function () {
 		return Promise.all([
 			fs.read(POOL_FILE).catch(function () { return ''; }),
-			this.getIspDns()
+			this.getIspDns(),
+			uci.load('network')
 		]);
 	},
 
@@ -67,7 +69,13 @@ return view.extend({
 
 	render: function (data) {
 		this.pool = parseLines(data[0]);
-		this.ispDns = data[1] || [];
+
+		// ubus's dns-server just echoes back whatever is currently effective —
+		// once network.wan.peerdns=0 (our own override active), it reflects
+		// that override, not what the ISP actually handed out over DHCP.
+		var peerdnsNow = uci.get('network', 'wan', 'peerdns');
+		this.ispDnsAvailable = (peerdnsNow !== '0');
+		this.ispDns = this.ispDnsAvailable ? (data[1] || []) : [];
 
 		var domainInput = E('input', { 'type': 'text', 'id': 'zr-rec-domain', 'placeholder': 'example.com', 'style': 'width:100%;max-width:420px;' });
 		var checkBtn = E('button', {
@@ -80,12 +88,20 @@ return view.extend({
 
 		var poolAddInput = E('input', { 'type': 'text', 'id': 'zr-pool-add', 'placeholder': '1.2.3.4', 'style': 'flex:1;' });
 
-		var container = E('div', { 'class': 'cbi-map' }, [
+		var containerChildren = [
 			E('h2', {}, 'ZapretRemix — Рекомендации'),
 			E('p', { 'class': 'cbi-value-description' },
 				'Быстрый диагноз для конкретного домена: проверяет, не подделывает ли провайдер DNS-ответ (и какой DNS-сервер из пула лучше использовать), ' +
-				'и не блокируется ли сам путь до сервера. Если это IP-блокировка — так и скажем прямо: zapret2 тут не поможет, но стратегию для DPI-части всё равно предложим.'),
+				'и не блокируется ли сам путь до сервера. Если это IP-блокировка — так и скажем прямо: zapret2 тут не поможет, но стратегию для DPI-части всё равно предложим.')
+		];
 
+		if (!this.ispDnsAvailable) {
+			containerChildren.push(E('p', { 'style': 'color:#c90;' },
+				'DNS провайдера сейчас не определить напрямую — на Дашборде активен другой режим (публичный/свой DNS). ' +
+				'Переключись на «DNS провайдера (авто)», сохрани, и вернись сюда — тогда проверка увидит настоящий IP.'));
+		}
+
+		containerChildren.push(
 			E('div', { 'style': 'margin:14px 0;' }, [
 				E('label', { 'class': 'field-label', 'style': 'display:block;margin-bottom:6px;' }, 'Домен'),
 				domainInput
@@ -100,7 +116,9 @@ return view.extend({
 				poolAddInput,
 				E('button', { 'class': 'cbi-button cbi-button-apply', 'click': ui.createHandlerFn(this, 'handlePoolAdd') }, 'Добавить в пул')
 			])
-		]);
+		);
+
+		var container = E('div', { 'class': 'cbi-map' }, containerChildren);
 
 		return container;
 	},
