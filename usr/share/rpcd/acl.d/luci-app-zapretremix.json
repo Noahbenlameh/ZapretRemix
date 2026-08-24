@@ -14,7 +14,8 @@
 				"/usr/sbin/logread*": [ "exec" ],
 				"/opt/zapret2/sync_config.sh*": [ "exec" ],
 				"/opt/zapret2/update-pkg.sh*": [ "exec" ],
-				"/opt/zapret2/blockcheck2.sh*": [ "exec" ]
+				"/opt/zapret2/blockcheck2.sh*": [ "exec" ],
+				"/opt/zapretremix/run-test.sh*": [ "exec" ]
 			},
 			"uci": [ "zapret2", "dhcp" ],
 			"ubus": {

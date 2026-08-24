@@ -13,6 +13,10 @@ cp -v "$SRC_DIR/usr/share/rpcd/acl.d/luci-app-zapretremix.json" /usr/share/rpcd/
 mkdir -p /www/luci-static/resources/view/zapretremix
 cp -v "$SRC_DIR"/www/luci-static/resources/view/zapretremix/*.js /www/luci-static/resources/view/zapretremix/
 
+mkdir -p /opt/zapretremix
+cp -v "$SRC_DIR"/opt/zapretremix/*.sh /opt/zapretremix/
+chmod +x /opt/zapretremix/*.sh
+
 echo "Reloading rpcd (ACL) ..."
 /etc/init.d/rpcd restart
 

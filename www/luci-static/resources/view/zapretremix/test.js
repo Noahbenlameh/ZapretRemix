@@ -56,15 +56,6 @@ return view.extend({
 		return domain.replace(/[^a-zA-Z0-9.\-]/g, '');
 	},
 
-	buildAnswers: function (domain) {
-		// wizard sequence: test-type, domain, ip-version, http?, tls1.2?, tls1.3?, repeats, parallel?, thoroughness
-		return [ '2', domain, '4', 'N', 'Y', 'N', '1', 'N', '1', '' ].join('\\n') + '\\n';
-	},
-
-	shQuote: function (s) {
-		return "'" + String(s).replace(/'/g, "'\\''") + "'";
-	},
-
 	isBusy: function () {
 		return fs.exec('/bin/busybox', [ 'sh', '-c', 'ps | grep blockcheck2.sh | grep -v grep' ])
 			.then(function (res) { return !!((res && res.stdout || '').trim()); });
@@ -89,14 +80,15 @@ return view.extend({
 
 			out.textContent = 'Запущено в фоне. Это надолго (10-30 минут) — можно уйти со страницы и вернуться, нажать «Показать текущий результат» в любой момент.';
 
-			var prefix = insecure ? 'CURL_OPT=-k ' : '';
-			var testCmd = 'printf "' + this.buildAnswers(domain) + '" | ' + prefix + env_tools.appDir + '/blockcheck2.sh';
-			var inner = '{ ' + env_tools.execPath + ' stop; ' + testCmd + '; ' + env_tools.execPath + ' start; echo ' + DONE_MARK + '; } >' + OUT_FILE + ' 2>&1 </dev/null';
-			var launch = 'rm -f ' + OUT_FILE + '; setsid /bin/busybox sh -c ' + this.shQuote(inner) + ' >/dev/null 2>&1 </dev/null &';
-
-			fs.exec('/bin/busybox', [ 'sh', '-c', launch ]).catch(function (err) {
-				out.textContent = 'Не удалось запустить: ' + err;
-			});
+			// domain/insecure travel as real argv elements (via fs.exec's params
+			// array) into run-test.sh, never interpolated into a shell string —
+			// avoids any manual quoting entirely. setsid detaches the job from
+			// this request so it survives past this call returning.
+			var launchCmd = 'setsid /opt/zapretremix/run-test.sh "$1" "$2" </dev/null >/dev/null 2>&1 &';
+			fs.exec('/bin/busybox', [ 'sh', '-c', launchCmd, 'launcher', domain, insecure ? '1' : '0' ])
+				.catch(function (err) {
+					out.textContent = 'Не удалось запустить: ' + err;
+				});
 		}, this));
 	},
 
