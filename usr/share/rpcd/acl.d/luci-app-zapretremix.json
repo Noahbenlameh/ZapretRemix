@@ -8,10 +8,15 @@
 				"/opt/zapret2/ipset/*": [ "read" ],
 				"/tmp/zapret*": [ "read" ],
 				"/etc/init.d/zapret2*": [ "exec" ],
+				"/etc/init.d/dnsmasq*": [ "exec" ],
 				"/bin/busybox*": [ "exec" ],
-				"/opt/zapret2/sync_config.sh*": [ "exec" ]
+				"/bin/cat*": [ "exec" ],
+				"/usr/sbin/logread*": [ "exec" ],
+				"/opt/zapret2/sync_config.sh*": [ "exec" ],
+				"/opt/zapret2/update-pkg.sh*": [ "exec" ],
+				"/opt/zapret2/blockcheck2.sh*": [ "exec" ]
 			},
-			"uci": [ "zapret2" ],
+			"uci": [ "zapret2", "dhcp" ],
 			"ubus": {
 				"luci": [ "getInitList", "setInitAction" ]
 			}
@@ -21,7 +26,7 @@
 				"/opt/zapret2/config": [ "write" ],
 				"/opt/zapret2/ipset/*": [ "write" ]
 			},
-			"uci": [ "zapret2" ]
+			"uci": [ "zapret2", "dhcp" ]
 		}
 	}
 }

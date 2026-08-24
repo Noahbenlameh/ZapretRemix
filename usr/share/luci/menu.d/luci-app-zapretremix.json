@@ -15,9 +15,42 @@
 	"admin/services/zapretremix/dashboard": {
 		"title": "Дашборд",
 		"order": 10,
-		"action": {
-			"type": "view",
-			"path": "zapretremix/dashboard"
-		}
+		"action": { "type": "view", "path": "zapretremix/dashboard" }
+	},
+
+	"admin/services/zapretremix/strategies": {
+		"title": "Стратегии",
+		"order": 20,
+		"action": { "type": "view", "path": "zapretremix/strategies" }
+	},
+
+	"admin/services/zapretremix/resources": {
+		"title": "Ресурсы",
+		"order": 30,
+		"action": { "type": "view", "path": "zapretremix/resources" }
+	},
+
+	"admin/services/zapretremix/test": {
+		"title": "Тест и анализ",
+		"order": 40,
+		"action": { "type": "view", "path": "zapretremix/test" }
+	},
+
+	"admin/services/zapretremix/appfinder": {
+		"title": "Поиск по приложению",
+		"order": 50,
+		"action": { "type": "view", "path": "zapretremix/appfinder" }
+	},
+
+	"admin/services/zapretremix/logs": {
+		"title": "Логи",
+		"order": 60,
+		"action": { "type": "view", "path": "zapretremix/logs" }
+	},
+
+	"admin/services/zapretremix/update": {
+		"title": "Обновление",
+		"order": 70,
+		"action": { "type": "view", "path": "zapretremix/update" }
 	}
 }
