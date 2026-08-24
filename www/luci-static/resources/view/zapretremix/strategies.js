@@ -73,29 +73,27 @@ return view.extend({
 			.then(function () { return fs.exec(env_tools.execPath, [ 'restart' ]); });
 	},
 
-	// Re-append any pinned per-domain blocks on top of whatever NFQWS2_OPT
-	// currently holds — needed because set_cfg_nfqws_strat (handleApplyPreset)
-	// overwrites NFQWS2_OPT entirely, which would otherwise silently drop
-	// pins the moment someone changes the global strategy.
-	appendPins: function () {
-		return fs.read(PINS_FILE).catch(function () { return '[]'; }).then(L.bind(function (text) {
+	// Writes /opt/zapretremix/pin-blocks.txt for rebuild-opt.sh to append —
+	// needed because that script (called by handleApplyPreset) resets
+	// NFQWS2_OPT entirely to the clean global preset, which would otherwise
+	// silently drop pins the moment someone changes the global strategy.
+	// The actual "read current OPT + append + commit" happens inside the
+	// shell script via plain `uci` CLI — doing it via LuCI's client-side
+	// uci.js (reading back a value a separate shell command just wrote)
+	// turned out to silently not pick up the fresh value in practice.
+	writePinBlocks: function () {
+		return fs.read(PINS_FILE).catch(function () { return '[]'; }).then(function (text) {
 			var pins;
 			try { pins = JSON.parse(text); } catch (e) { pins = []; }
-			if (!pins.length) return;
-			return uci.load('zapret2').then(function () {
-				var cleanOpt = uci.get('zapret2', 'config', 'NFQWS2_OPT') || '';
-				var finalOpt = cleanOpt;
-				pins.forEach(function (pin) {
-					var tmpl = PIN_TEMPLATES[pin.preset] || PIN_TEMPLATES.default;
-					var pinFile = '/opt/zapretremix/pin-hosts/' + pin.domain.replace(/[^a-zA-Z0-9.\-]/g, '_') + '.txt';
-					finalOpt += '\n\n--new\n' + tmpl
-						.replace(/<HOSTLIST_NOAUTO>/g, '--hostlist=' + pinFile)
-						.replace(/<HOSTLIST>/g, '--hostlist=' + pinFile);
-				});
-				uci.set('zapret2', 'config', 'NFQWS2_OPT', finalOpt);
-				return uci.save().catch(function () {});
-			});
-		}, this));
+			var extra = pins.map(function (pin) {
+				var tmpl = PIN_TEMPLATES[pin.preset] || PIN_TEMPLATES.default;
+				var pinFile = '/opt/zapretremix/pin-hosts/' + pin.domain.replace(/[^a-zA-Z0-9.\-]/g, '_') + '.txt';
+				return '--new\n' + tmpl
+					.replace(/<HOSTLIST_NOAUTO>/g, '--hostlist=' + pinFile)
+					.replace(/<HOSTLIST>/g, '--hostlist=' + pinFile);
+			}).join('\n\n');
+			return fs.write('/opt/zapretremix/pin-blocks.txt', extra);
+		});
 	},
 
 	render: function () {
@@ -166,9 +164,8 @@ return view.extend({
 
 	handleApplyPreset: function (key) {
 		var oldRaw = this.prevRaw;
-		var cmd = '. ' + env_tools.defCfgPath + '; set_cfg_nfqws_strat ' + key + ' zapret2';
-		fs.exec('/bin/busybox', [ 'sh', '-c', cmd ])
-			.then(L.bind(this.appendPins, this))
+		this.writePinBlocks()
+			.then(function () { return fs.exec('/opt/zapretremix/rebuild-opt.sh', [ key ]); })
 			.then(L.bind(function () { return fs.exec(env_tools.syncCfgPath, []); }, this))
 			.then(L.bind(function () { return fs.exec(env_tools.execPath, [ 'restart' ]); }, this))
 			.then(L.bind(function () {
@@ -187,7 +184,7 @@ return view.extend({
 	},
 
 	handleApplyCustom: function () {
-		// Deliberately does NOT call appendPins() — this path applies
+		// Deliberately does NOT re-append pins here — this path applies
 		// whatever raw text the user typed verbatim (which may already
 		// include pin blocks from a prior rebuild); auto-appending again
 		// here risks duplicating them. Custom mode is power-user territory,

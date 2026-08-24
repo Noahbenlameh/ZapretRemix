@@ -127,27 +127,23 @@ return view.extend({
 
 	// Rebuild NFQWS2_OPT from scratch: clean global preset (whatever is
 	// currently active) + one --new block per pin, each with a literal
-	// --hostlist pointing at that pin's own file. Called after any pin
-	// add/remove so pins always reflect the current set correctly, and
-	// safe to call repeatedly (never accumulates duplicate blocks, since
-	// it always starts from a freshly regenerated clean base).
+	// --hostlist pointing at that pin's own file. The actual "reset then
+	// append" happens entirely inside rebuild-opt.sh via plain `uci` CLI
+	// commands — relying on LuCI's client-side uci.js to read back a value
+	// a separate shell command had just written turned out to silently not
+	// pick up the fresh value in practice (same class of issue as the DNS
+	// section's uci.save() quirk). Safe to call repeatedly — always starts
+	// from a freshly regenerated clean base, never accumulates duplicates.
 	rebuildOpt: function () {
 		var presetKey = this.currentStrategyKey();
-		var cmd = '. ' + env_tools.defCfgPath + '; set_cfg_nfqws_strat ' + presetKey + ' zapret2';
+		var extra = this.pins.map(function (pin) {
+			var tmpl = PIN_TEMPLATES[pin.preset] || PIN_TEMPLATES.default;
+			var pinFile = PIN_HOSTS_DIR + '/' + safeName(pin.domain) + '.txt';
+			return '--new\n' + fillHostlist(tmpl, pinFile);
+		}).join('\n\n');
 
-		return fs.exec('/bin/busybox', [ 'sh', '-c', cmd ])
-			.then(L.bind(function () { return uci.load('zapret2'); }, this))
-			.then(L.bind(function () {
-				var cleanOpt = uci.get('zapret2', 'config', 'NFQWS2_OPT') || '';
-				var finalOpt = cleanOpt;
-				this.pins.forEach(function (pin) {
-					var tmpl = PIN_TEMPLATES[pin.preset] || PIN_TEMPLATES.default;
-					var pinFile = PIN_HOSTS_DIR + '/' + safeName(pin.domain) + '.txt';
-					finalOpt += '\n\n--new\n' + fillHostlist(tmpl, pinFile);
-				});
-				uci.set('zapret2', 'config', 'NFQWS2_OPT', finalOpt);
-				return uci.save().catch(function () {});
-			}, this))
+		return fs.write('/opt/zapretremix/pin-blocks.txt', extra)
+			.then(function () { return fs.exec('/opt/zapretremix/rebuild-opt.sh', [ presetKey ]); })
 			.then(L.bind(function () { return fs.exec(env_tools.syncCfgPath, []); }, this))
 			.then(L.bind(function () { return fs.exec(env_tools.execPath, [ 'restart' ]); }, this));
 	},

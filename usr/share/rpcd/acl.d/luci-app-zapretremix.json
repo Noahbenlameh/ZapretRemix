@@ -16,9 +16,11 @@
 				"/opt/zapret2/update-pkg.sh*": [ "exec" ],
 				"/opt/zapret2/blockcheck2.sh*": [ "exec" ],
 				"/opt/zapretremix/run-test.sh*": [ "exec" ],
+				"/opt/zapretremix/rebuild-opt.sh*": [ "exec" ],
 				"/opt/zapretremix/dns-pool.txt": [ "read" ],
 				"/opt/zapretremix/pins.json": [ "read" ],
-				"/opt/zapretremix/pin-hosts/*": [ "read" ]
+				"/opt/zapretremix/pin-hosts/*": [ "read" ],
+				"/opt/zapretremix/pin-blocks.txt": [ "read" ]
 			},
 			"uci": [ "zapret2", "dhcp", "network" ],
 			"ubus": {
@@ -31,7 +33,8 @@
 				"/opt/zapret2/ipset/*": [ "write" ],
 				"/opt/zapretremix/dns-pool.txt": [ "write" ],
 				"/opt/zapretremix/pins.json": [ "write" ],
-				"/opt/zapretremix/pin-hosts/*": [ "write" ]
+				"/opt/zapretremix/pin-hosts/*": [ "write" ],
+				"/opt/zapretremix/pin-blocks.txt": [ "write" ]
 			},
 			"uci": [ "zapret2", "dhcp", "network" ]
 		}
