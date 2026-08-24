@@ -68,10 +68,16 @@ return view.extend({
 				var domains = Object.keys(found).sort();
 				this.showResults(domains);
 
+				// reload uci state first — the earlier Start click already did a
+				// set()+save() on this same section, and stale client-side state
+				// can make a second set() on an anonymous section silently miss.
+				return uci.load('dhcp');
+			}, this))
+			.then(function () {
 				// turn logging back off — was only needed temporarily
 				uci.set('dhcp', '@dnsmasq[0]', 'logqueries', '0');
 				return uci.save();
-			}, this))
+			})
 			.then(function () { return fs.exec('/etc/init.d/dnsmasq', [ 'restart' ]); })
 			.catch(L.bind(function (err) {
 				this.resultBox.innerHTML = '';
