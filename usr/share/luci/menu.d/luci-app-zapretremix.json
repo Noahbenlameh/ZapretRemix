@@ -42,6 +42,12 @@
 		"action": { "type": "view", "path": "zapretremix/pins" }
 	},
 
+	"admin/services/zapretremix/proxyports": {
+		"title": "Прокси по портам (эксп.)",
+		"order": 37,
+		"action": { "type": "view", "path": "zapretremix/proxyports" }
+	},
+
 	"admin/services/zapretremix/test": {
 		"title": "Тест и анализ",
 		"order": 40,

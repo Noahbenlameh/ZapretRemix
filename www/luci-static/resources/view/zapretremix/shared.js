@@ -112,6 +112,33 @@ var FAMILY_PRESETS = {
 	}
 };
 
+// Blind, port-scoped desync combos for non-HTTP/TLS/QUIC traffic (SOCKS5/HTTP
+// proxy control channel, or any other TCP protocol without a domain/SNI to
+// match on) — used by proxyports.js. No --filter-l7 here: there's nothing to
+// parse, so only byte-position-blind tricks apply (numeric pos=, not
+// midsld/sniext/endhost, which need an actual TLS parse). fake_default_tls is
+// nfqws2's built-in default fake payload (same one PIN_TEMPLATES reference
+// without ever declaring it via --blob=) — it works as generic decoy noise
+// regardless of what protocol is actually running on the port; the point is
+// to confuse a DPI classifier watching the handshake shape, not to look like
+// valid TLS to the real server. EXPERIMENTAL — unlike PIN_TEMPLATES (verified
+// working live this session), these are standard documented zapret2 syntax
+// patterns, not individually verified against a real SOCKS5/HTTP-proxy
+// classifier — that verification is exactly what proxyports.js's automated
+// test loop is for.
+var PORT_COMBOS = [
+	{ key: 'fake', title: 'Fake-пакет (сдвиг seq)',
+		build: function (port) { return '--filter-tcp=' + port + '\n--lua-desync=fake:blob=fake_default_tls:tcp_seq=-10000'; } },
+	{ key: 'split1', title: 'Разрыв на 1-м байте',
+		build: function (port) { return '--filter-tcp=' + port + '\n--lua-desync=multisplit:pos=1'; } },
+	{ key: 'split3', title: 'Разрыв на 3-м байте',
+		build: function (port) { return '--filter-tcp=' + port + '\n--lua-desync=multisplit:pos=3'; } },
+	{ key: 'fake_split', title: 'Fake + разрыв на 2-м байте',
+		build: function (port) { return '--filter-tcp=' + port + '\n--lua-desync=fake:blob=fake_default_tls:tcp_seq=-10000\n--lua-desync=multisplit:pos=2'; } },
+	{ key: 'disorder', title: 'Disorder (1-й байт, потом -10 от конца)',
+		build: function (port) { return '--filter-tcp=' + port + '\n--lua-desync=multidisorder:pos=1,-10'; } }
+];
+
 function safeName(domain) {
 	return domain.replace(/[^a-zA-Z0-9.\-]/g, '_');
 }
@@ -150,6 +177,7 @@ return baseclass.extend({
 	PRESET_CHOICES: PRESET_CHOICES,
 	STRATEGY_TITLES: STRATEGY_TITLES,
 	FAMILY_PRESETS: FAMILY_PRESETS,
+	PORT_COMBOS: PORT_COMBOS,
 	safeName: safeName,
 	fillHostlist: fillHostlist,
 	parseDomains: parseDomains,

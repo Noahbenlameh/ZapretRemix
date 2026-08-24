@@ -18,13 +18,18 @@
 				"/opt/zapretremix/run-test.sh*": [ "exec" ],
 				"/opt/zapretremix/rebuild-opt.sh*": [ "exec" ],
 				"/opt/zapretremix/test-strategy.sh*": [ "exec" ],
+				"/opt/zapretremix/test-strategy-port.sh*": [ "exec" ],
 				"/opt/zapretremix/dns-pool.txt": [ "read" ],
 				"/opt/zapretremix/pins.json": [ "read" ],
 				"/opt/zapretremix/pin-hosts/*": [ "read" ],
 				"/opt/zapretremix/pin-blocks.txt": [ "read" ],
 				"/opt/zapretremix/test-hosts.txt": [ "read" ],
 				"/opt/zapretremix/test-opt.txt": [ "read" ],
-				"/opt/zapretremix/opt-backup.txt": [ "read" ]
+				"/opt/zapretremix/opt-backup.txt": [ "read" ],
+				"/opt/zapretremix/proxy-profiles.json": [ "read" ],
+				"/opt/zapretremix/pin-ports-blocks.txt": [ "read" ],
+				"/opt/zapretremix/portopt-backup.txt": [ "read" ],
+				"/opt/zapretremix/portlist-backup.txt": [ "read" ]
 			},
 			"uci": [ "zapret2", "dhcp", "network" ],
 			"ubus": {
@@ -41,7 +46,9 @@
 				"/opt/zapretremix/pin-blocks.txt": [ "write" ],
 				"/opt/zapretremix/test-hosts.txt": [ "write" ],
 				"/opt/zapretremix/test-opt.txt": [ "write" ],
-				"/opt/zapretremix/opt-backup.txt": [ "write" ]
+				"/opt/zapretremix/opt-backup.txt": [ "write" ],
+				"/opt/zapretremix/proxy-profiles.json": [ "write" ],
+				"/opt/zapretremix/pin-ports-blocks.txt": [ "write" ]
 			},
 			"uci": [ "zapret2", "dhcp", "network" ]
 		}
