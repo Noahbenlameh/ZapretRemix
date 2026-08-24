@@ -76,6 +76,7 @@ return view.extend({
 		this.prevValues = cfg;
 
 		var statusBadge = E('span', {
+			'id': 'zr-status-badge',
 			'style': 'padding:3px 10px;border-radius:3px;color:#fff;font-weight:bold;' +
 				(running ? 'background:#2ea256;' : 'background:#a33;')
 		}, running ? 'РАБОТАЕТ' : 'ОСТАНОВЛЕН');
@@ -158,9 +159,13 @@ return view.extend({
 	handleServiceAction: function (action) {
 		return fs.exec(env_tools.execPath, [ action ]).then(L.bind(function () {
 			ui.addNotification(null, E('p', {}, 'Команда «' + action + '» выполнена.'), 'info');
-			return this.load().then(L.bind(function (data) {
-				var freshNode = this.render(data);
-				this.container.parentNode.replaceChild(freshNode, this.container);
+			return fs.exec('/bin/busybox', [ 'ps' ]).then(L.bind(function (res) {
+				var running = this.isRunning((res && res.stdout) || '');
+				var badge = document.getElementById('zr-status-badge');
+				if (badge) {
+					badge.textContent = running ? 'РАБОТАЕТ' : 'ОСТАНОВЛЕН';
+					badge.style.background = running ? '#2ea256' : '#a33';
+				}
 			}, this));
 		}, this)).catch(function (err) {
 			ui.addNotification(null, E('p', {}, 'Ошибка: ' + err), 'error');
