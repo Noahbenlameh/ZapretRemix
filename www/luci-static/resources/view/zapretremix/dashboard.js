@@ -20,11 +20,9 @@ var MODE_LABELS = {
 	autohostlist: 'Умный автоматический режим — сам находит проблемные сайты'
 };
 
-var REVERT_SECONDS = 20;
 var PUBLIC_DNS = '8.8.8.8 1.1.1.1';
 
 return view.extend({
-	revertTimer: null,
 	prevValues: null,
 	prevDns: null,
 	container: null,
@@ -117,6 +115,12 @@ return view.extend({
 		};
 	},
 
+	// uci.set()/uci.save() only stage the change into the server's uncommitted
+	// changeset (same one the native "Unsaved Changes" indicator tracks) — that
+	// staged state is already enough for sync_config.sh + restart to pick up
+	// (plain `uci get` sees staged values, not just committed ones), so the
+	// daemon reflects the new setting immediately. But nothing here commits it
+	// to /etc/config/zapret2 yet; see handleApplyClick for why that's on purpose.
 	applyConfig: function (cfg) {
 		uci.set('zapret2', 'config', 'MODE_FILTER', cfg.mode);
 		uci.set('zapret2', 'config', 'NFQWS2_TCP_PKT_OUT', cfg.pktOut);
@@ -211,11 +215,6 @@ return view.extend({
 			'click': ui.createHandlerFn(this, 'handleServiceAction', 'restart')
 		}, 'Рестарт');
 
-		var revertBox = E('div', {
-			'id': 'zr-revert-box',
-			'style': 'display:none;margin-top:14px;padding:12px 14px;border:1px solid #c90;background:#fff8e6;border-radius:4px;color:#333;'
-		});
-
 		var dnsStatusText = E('span', { 'id': 'zr-dns-status-text' }, this.dnsLabel(dnsCfg));
 
 		var ispIpDisabled = !this.ispDnsAvailable || !this.ispDns.length;
@@ -275,7 +274,6 @@ return view.extend({
 			pktHidden,
 
 			E('div', { 'style': 'margin-top:20px;' }, applyBtn),
-			revertBox,
 
 			E('h3', { 'style': 'margin-top:32px;' }, 'DNS'),
 			E('p', { 'class': 'cbi-value-description' },
@@ -316,6 +314,16 @@ return view.extend({
 		});
 	},
 
+	// Previously this had its own 20-second JS countdown ("Подтвердить" box)
+	// running in parallel with LuCI's native "Unsaved Changes" indicator, which
+	// also lights up the moment uci.save() stages anything. Two competing
+	// confirmation UIs for the same staged change: if you went to deal with the
+	// native one first, our own timer kept running unattended in the
+	// background and silently reverted MODE_FILTER back to the old value —
+	// then whatever you confirmed natively just committed that already-
+	// reverted state. Fix: drop our own timer entirely and hand confirmation
+	// off to the same ui.changes.apply(true) the DNS section already uses —
+	// one mechanism, server-side rollback, no race.
 	handleApplyClick: function () {
 		var mode = document.getElementById('zr-mode').value;
 		var pktKey = document.getElementById('zr-pkt-selected').value;
@@ -332,54 +340,10 @@ return view.extend({
 
 		this.applyConfig(newCfg).then(L.bind(function () {
 			this.prevValues = newCfg;
-			this.startRevertCountdown(oldCfg);
+			ui.changes.apply(true);
 		}, this)).catch(function (err) {
 			ui.addNotification(null, E('p', {}, 'Не удалось применить настройки: ' + err), 'error');
 		});
-	},
-
-	startRevertCountdown: function (oldCfg) {
-		var box = document.getElementById('zr-revert-box');
-		var self = this;
-		var seconds = REVERT_SECONDS;
-
-		if (this.revertTimer) {
-			clearInterval(this.revertTimer);
-			this.revertTimer = null;
-		}
-
-		function draw() {
-			box.style.display = 'block';
-			box.innerHTML = '';
-			box.appendChild(E('p', {}, 'Настройки применены. Если что-то пошло не так — через ' + seconds +
-				' сек. произойдёт автоматический откат к предыдущим значениям.'));
-			var confirmBtn = E('button', {
-				'class': 'cbi-button cbi-button-positive',
-				'click': function () {
-					clearInterval(self.revertTimer);
-					self.revertTimer = null;
-					box.style.display = 'none';
-					ui.addNotification(null, E('p', {}, 'Изменения подтверждены и сохранены.'), 'info');
-				}
-			}, 'Подтвердить (оставить как есть)');
-			box.appendChild(confirmBtn);
-		}
-
-		draw();
-		this.revertTimer = setInterval(function () {
-			seconds -= 1;
-			if (seconds <= 0) {
-				clearInterval(self.revertTimer);
-				self.revertTimer = null;
-				box.style.display = 'none';
-				self.applyConfig(oldCfg).then(function () {
-					self.prevValues = oldCfg;
-					ui.addNotification(null, E('p', {}, 'Автоматически откачено к предыдущим настройкам.'), 'warning');
-				});
-				return;
-			}
-			draw();
-		}, 1000);
 	},
 
 	handleDnsApply: function () {
