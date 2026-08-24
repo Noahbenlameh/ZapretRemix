@@ -1,5 +1,6 @@
 'use strict';
 'require baseclass';
+'require view';
 'require fs';
 'require rpc';
 'require ui';
