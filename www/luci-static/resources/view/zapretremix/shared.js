@@ -1,9 +1,14 @@
 'use strict';
+'require baseclass';
 
 // Shared constants/helpers for the Закреплённые / Стратегии / Рекомендации
 // tabs — kept in one place so a preset template or domain-family set only
 // needs updating once instead of drifting across three duplicated copies.
-// 'require view.zapretremix.shared as shared' to use.
+// 'require view.zapretremix.shared as shared' to use. LuCI's module loader
+// requires the factory to return a baseclass-derived constructor (it
+// auto-instantiates it) — a plain object literal fails with "factory yields
+// invalid constructor", so this wraps the exports in baseclass.extend()
+// instead of a bare `return {...}`.
 
 // Full per-preset templates (all 3 blocks: HTTP/TLS/QUIC), copied verbatim
 // from the actual /opt/zapret2/def-cfg.sh installed this session (NOT
@@ -108,7 +113,7 @@ function normalizePin(pin) {
 	return { id: safeName(pin.domain), domains: [ pin.domain ], preset: pin.preset, dns: pin.dns || '' };
 }
 
-return {
+return baseclass.extend({
 	PIN_TEMPLATES: PIN_TEMPLATES,
 	PRESET_CHOICES: PRESET_CHOICES,
 	STRATEGY_TITLES: STRATEGY_TITLES,
@@ -117,4 +122,4 @@ return {
 	fillHostlist: fillHostlist,
 	parseDomains: parseDomains,
 	normalizePin: normalizePin
-};
+});
