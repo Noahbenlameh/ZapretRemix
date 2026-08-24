@@ -7,14 +7,44 @@
 'require view.zapret2.env as env_tools';
 
 var POOL_FILE = '/opt/zapretremix/dns-pool.txt';
+var PIN_BLOCKS_FILE = '/opt/zapretremix/pin-blocks.txt';
+var TEST_HOSTS_FILE = '/opt/zapretremix/test-hosts.txt';
+var TEST_OPT_FILE = '/opt/zapretremix/test-opt.txt';
 
-var STRATEGY_HINTS = [
-	{ key: 'default', title: 'По умолчанию', desc: 'Начни с неё в большинстве случаев.' },
-	{ key: 'v1_by_AnonymTsk', title: 'AnonymTsk v1', desc: 'Если ресурс использует голос/звонки/Discord/Telegram-подобный UDP.' },
-	{ key: 'v1_by_Schiz23', title: 'Schiz23 v1', desc: 'Альтернатива, если «По умолчанию» не помогла.' },
-	{ key: 'v2_by_Schiz23', title: 'Schiz23 v2', desc: 'Ещё один вариант того же автора.' },
-	{ key: 'v1_by_Routerich', title: 'Routerich v1', desc: 'Самая тяжёлая/полная — на упорные случаи, когда ничего другое не сработало.' }
-];
+// Same 4 templatable presets as pins.js/strategies.js (v1_by_Routerich
+// excluded everywhere — too complex/hardcoded to safely templatize).
+// Duplicated here rather than shared via a common module, same tradeoff
+// as elsewhere in this app (only a couple of files need it).
+var STRATEGY_TITLES = {
+	default: 'По умолчанию',
+	v1_by_AnonymTsk: 'AnonymTsk v1',
+	v1_by_Schiz23: 'Schiz23 v1',
+	v2_by_Schiz23: 'Schiz23 v2'
+};
+var TEST_ORDER = [ 'default', 'v1_by_AnonymTsk', 'v1_by_Schiz23', 'v2_by_Schiz23' ];
+var PIN_TEMPLATES = {
+	default:
+		'--filter-tcp=80\n--filter-l7=http <HOSTLIST>\n--payload=http_req\n--lua-desync=fake:blob=fake_default_http:tcp_md5\n--lua-desync=multisplit:pos=method+2\n\n' +
+		'--new\n--filter-tcp=443\n--filter-l7=tls <HOSTLIST>\n--payload=tls_client_hello\n--lua-desync=fake:blob=fake_default_tls:tcp_md5:tcp_seq=-10000\n--lua-desync=multidisorder:pos=1,midsld\n\n' +
+		'--new\n--filter-udp=443\n--filter-l7=quic <HOSTLIST_NOAUTO>\n--payload=quic_initial\n--lua-desync=fake:blob=fake_default_quic:repeats=6',
+	v1_by_Schiz23:
+		'--filter-tcp=80\n--filter-l7=http <HOSTLIST>\n--payload=http_req\n--lua-desync=fake:blob=fake_default_http:tcp_md5\n--lua-desync=multisplit:pos=method+2\n\n' +
+		'--new\n--filter-tcp=443\n--filter-l7=tls <HOSTLIST>\n--lua-desync=fake:blob=fake_default_tls:ip_ttl=1:ip6_ttl=1:tls_mod=rnd,rndsni,padencap\n--lua-desync=multidisorder:payload=tls_client_hello:pos=3\n\n' +
+		'--new\n--filter-udp=443\n--filter-l7=quic <HOSTLIST_NOAUTO>\n--lua-desync=fake:blob=fake_default_quic:repeats=11:payload=all:out_range=-d10',
+	v2_by_Schiz23:
+		'--filter-tcp=80\n--filter-l7=http <HOSTLIST>\n--payload=http_req\n--lua-desync=fake:blob=fake_default_http:tcp_md5\n--lua-desync=multisplit:pos=method+2\n\n' +
+		'--new\n--filter-tcp=443\n--filter-l7=tls <HOSTLIST>\n--payload=tls_client_hello\n--lua-desync=multidisorder:payload=tls_client_hello:pos=100,midsld,sniext+1,endhost-2,-10\n--lua-desync=send:sni=.microsoft\n\n' +
+		'--new\n--filter-udp=443\n--filter-l7=quic <HOSTLIST_NOAUTO>\n--payload=quic_initial\n--lua-desync=fake:blob=fake_default_quic:repeats=11',
+	v1_by_AnonymTsk:
+		'--blob=blob_tls_clienthello_www_google_com:@/opt/zapret2/files/fake/tls_clienthello_www_google_com.bin\n--blob=blob_quic_initial_www_google_com:@/opt/zapret2/files/fake/quic_initial_www_google_com.bin\n\n' +
+		'--filter-tcp=443,80\n--filter-l7=http,tls <HOSTLIST>\n--payload=tls_client_hello\n--lua-desync=fake:blob=fake_default_tls:tls_mod=rnd,dupsid,sni=www.google.com:tcp_ts=-1000\n--lua-desync=multidisorder:pos=1,midsld,sniext+1,endhost-2,-10:seqovl=1:seqovl_pattern=blob_tls_clienthello_www_google_com:tcp_ts_up\n--payload=http_req\n--lua-desync=http_methodeol:badsum\n\n' +
+		'--new\n--filter-udp=443\n--filter-l7=quic <HOSTLIST_NOAUTO>\n--payload=quic_initial\n--lua-desync=fake:blob=blob_quic_initial_www_google_com:repeats=11'
+};
+
+function fillPinTemplate(presetKey, hostFile) {
+	var tmpl = PIN_TEMPLATES[presetKey] || PIN_TEMPLATES.default;
+	return tmpl.replace(/<HOSTLIST_NOAUTO>/g, '--hostlist=' + hostFile).replace(/<HOSTLIST>/g, '--hostlist=' + hostFile);
+}
 
 function parseLines(text) {
 	return (text || '').split('\n').map(function (l) { return l.trim(); }).filter(function (l) {
@@ -232,7 +262,7 @@ return view.extend({
 			var testIp = (ispOk.length && !dnsBlocked) ? ispOk[0].ips[0] : (bestServer ? majorityIp : (systemResult.ok ? systemResult.ips[0] : null));
 
 			if (!testIp) {
-				self.renderVerdict(domain, systemResult, ispResults, poolResults, dnsBlocked, bestServer, null);
+				self.renderVerdict(domain, systemResult, ispResults, poolResults, dnsBlocked, bestServer, null, null);
 				return;
 			}
 
@@ -243,12 +273,12 @@ return view.extend({
 				var out = (res && res.stdout) || '';
 				var m = /EXITCODE=(\d+)/.exec(out);
 				var code = m ? parseInt(m[1], 10) : -1;
-				self.renderVerdict(domain, systemResult, ispResults, poolResults, dnsBlocked, bestServer, { code: code, ms: Date.now() - curlStart, raw: out });
+				self.renderVerdict(domain, systemResult, ispResults, poolResults, dnsBlocked, bestServer, { code: code, ms: Date.now() - curlStart, raw: out }, testIp);
 			});
 		});
 	},
 
-	renderVerdict: function (domain, systemResult, ispResults, poolResults, dnsBlocked, bestServer, curlResult) {
+	renderVerdict: function (domain, systemResult, ispResults, poolResults, dnsBlocked, bestServer, curlResult, testIp) {
 		var box = this.resultBox;
 		box.innerHTML = '';
 
@@ -302,10 +332,21 @@ return view.extend({
 		}
 
 		parts.push(E('h3', { 'style': 'margin-top:20px;' }, 'Стратегия'));
-		parts.push(E('p', { 'class': 'cbi-value-description' }, 'Порядок, в котором стоит пробовать (применяются на вкладке «Стратегии»):'));
-		parts.push(E('div', {}, STRATEGY_HINTS.map(function (s, i) {
-			return E('p', { 'style': 'margin:4px 0;' }, [ (i + 1) + '. ', E('strong', {}, s.title), ' — ' + s.desc ]);
-		})));
+
+		if (curlResult && curlResult.code !== 0 && testIp) {
+			parts.push(E('p', { 'class': 'cbi-value-description' },
+				'Реально проверим каждую из наших стратегий против этого домена (не статичная подсказка) — по очереди применяем, тестируем, откатываем. ' +
+				'Это займёт около 30-40 секунд, и на это время у остальных в доме временно пропадёт общий обход блокировок — тестируем только этот один домен.'));
+			parts.push(E('div', { 'style': 'margin:10px 0;' }, E('button', {
+				'class': 'cbi-button cbi-button-apply',
+				'click': ui.createHandlerFn(this, 'handleTestStrategies', domain, testIp)
+			}, '▶ Протестировать стратегии автоматически')));
+			parts.push(E('div', { 'id': 'zr-strat-test-progress' }));
+		} else if (curlResult && curlResult.code === 0) {
+			parts.push(E('p', { 'class': 'cbi-value-description' }, 'Домен и так доступен без обхода — тестировать стратегии не требуется.'));
+		} else {
+			parts.push(E('p', { 'class': 'cbi-value-description' }, 'Не удалось определить IP для теста стратегий.'));
+		}
 
 		parts.push(E('div', { 'style': 'margin-top:16px;' }, E('button', {
 			'class': 'cbi-button cbi-button-apply',
@@ -313,6 +354,124 @@ return view.extend({
 		}, 'Добавить «' + domain + '» в Ресурсы')));
 
 		parts.forEach(function (p) { box.appendChild(p); });
+	},
+
+	handleTestStrategies: function (domain, testIp) {
+		var progress = document.getElementById('zr-strat-test-progress');
+		var self = this;
+		var results = [];
+
+		function setProgress(node) {
+			progress.innerHTML = '';
+			progress.appendChild(node);
+		}
+
+		setProgress(E('p', { 'style': 'color:#888;' }, 'Сохраняю текущую конфигурацию...'));
+
+		fs.exec('/opt/zapretremix/test-strategy.sh', [ 'backup' ])
+			.then(function () { return fs.write(TEST_HOSTS_FILE, domain + '\n'); })
+			.then(function () {
+				return TEST_ORDER.reduce(function (chain, presetKey) {
+					return chain.then(function () {
+						setProgress(E('p', { 'style': 'color:#888;' }, 'Пробую «' + STRATEGY_TITLES[presetKey] + '» (' + (results.length + 1) + '/' + TEST_ORDER.length + ')...'));
+						var opt = fillPinTemplate(presetKey, TEST_HOSTS_FILE);
+						return fs.write(TEST_OPT_FILE, opt)
+							.then(function () { return fs.exec('/opt/zapretremix/test-strategy.sh', [ 'apply' ]); })
+							.then(function () {
+								return fs.exec('/bin/busybox', [ 'sh', '-c',
+									'curl --resolve ' + domain + ':443:' + testIp + ' -o /dev/null -s -S --max-time 5 https://' + domain + '/ 2>&1; echo "EXITCODE=$?"'
+								]);
+							})
+							.then(function (res) {
+								var out = (res && res.stdout) || '';
+								var m = /EXITCODE=(\d+)/.exec(out);
+								var code = m ? parseInt(m[1], 10) : -1;
+								results.push({ preset: presetKey, code: code, ok: code === 0 });
+							});
+					});
+				}, Promise.resolve());
+			})
+			.then(function () {
+				setProgress(E('p', { 'style': 'color:#888;' }, 'Возвращаю обычную конфигурацию...'));
+				return fs.exec('/opt/zapretremix/test-strategy.sh', [ 'restore' ]);
+			})
+			.then(function () { self.renderStrategyTestResults(domain, results, progress); })
+			.catch(function (err) {
+				fs.exec('/opt/zapretremix/test-strategy.sh', [ 'restore' ]).catch(function () {});
+				setProgress(E('p', { 'style': 'color:#c33;' }, 'Ошибка теста (конфигурация возвращена обратно): ' + err));
+			});
+	},
+
+	renderStrategyTestResults: function (domain, results, progress) {
+		progress.innerHTML = '';
+		var anyWorked = results.some(function (r) { return r.ok; });
+
+		progress.appendChild(E('p', { 'style': 'font-weight:bold;margin:10px 0 6px;' },
+			anyWorked ? 'Готово — есть рабочие варианты:' : 'Готово — ни одна из наших стратегий не помогла.'));
+
+		results.forEach(L.bind(function (r) {
+			var badge = r.ok
+				? E('span', { 'style': 'color:#3a3;font-weight:bold;' }, '✓ Работает')
+				: E('span', { 'style': 'color:#c33;' }, '✗ Код ' + r.code);
+			var row = E('div', { 'style': 'display:flex;align-items:center;gap:14px;padding:6px 0;border-bottom:1px solid #3335;' }, [
+				E('span', { 'style': 'flex:1;' }, STRATEGY_TITLES[r.preset] || r.preset),
+				badge
+			]);
+			if (r.ok) {
+				row.appendChild(E('button', {
+					'class': 'cbi-button cbi-button-apply',
+					'click': ui.createHandlerFn(this, 'handlePinResult', domain, r.preset)
+				}, 'Закрепить'));
+			}
+			progress.appendChild(row);
+		}, this));
+
+		if (!anyWorked) {
+			progress.appendChild(E('p', { 'style': 'margin-top:10px;' },
+				'Стоит попробовать полный перебор на вкладке «Тест и анализ» — он проверяет намного больше вариантов (десятки), просто заметно дольше (10-30 минут).'));
+		}
+	},
+
+	handlePinResult: function (domain, presetKey) {
+		var self = this;
+		fs.read('/opt/zapretremix/pins.json').catch(function () { return '[]'; }).then(function (text) {
+			var pins;
+			try { pins = JSON.parse(text); } catch (e) { pins = []; }
+			if (pins.some(function (p) { return p.domain === domain; })) {
+				ui.addNotification(null, E('p', {}, 'Этот домен уже закреплён — измени на вкладке «Закреплённые».'), 'warning');
+				return null;
+			}
+			pins.push({ domain: domain, preset: presetKey, dns: '' });
+			var pinFile = '/opt/zapretremix/pin-hosts/' + domain.replace(/[^a-zA-Z0-9.\-]/g, '_') + '.txt';
+			return fs.exec('/bin/busybox', [ 'mkdir', '-p', '/opt/zapretremix/pin-hosts' ])
+				.then(function () { return fs.write(pinFile, domain + '\n'); })
+				.then(function () { return fs.write('/opt/zapretremix/pins.json', JSON.stringify(pins, null, 2)); })
+				.then(function () { return self.rebuildWithPins(pins); })
+				.then(function () {
+					ui.addNotification(null, E('p', {}, domain + ' закреплён со стратегией «' + STRATEGY_TITLES[presetKey] + '».'), 'info');
+				});
+		}).catch(function (err) {
+			ui.addNotification(null, E('p', {}, 'Ошибка: ' + err), 'error');
+		});
+	},
+
+	rebuildWithPins: function (pins) {
+		var extra = pins.map(function (pin) {
+			var pinFile = '/opt/zapretremix/pin-hosts/' + pin.domain.replace(/[^a-zA-Z0-9.\-]/g, '_') + '.txt';
+			return '--new\n' + fillPinTemplate(pin.preset, pinFile);
+		}).join('\n\n');
+
+		return fs.write(PIN_BLOCKS_FILE, extra)
+			.then(function () {
+				return fs.exec('/bin/busybox', [ 'sh', '-c', 'grep -o "Strategy__[a-zA-Z_0-9]*" /opt/zapret2/config 2>/dev/null | head -1' ]);
+			})
+			.then(function (res) {
+				var m = /Strategy__(\S+)/.exec((res && res.stdout) || '');
+				var presetKey = (m && PIN_TEMPLATES[m[1]]) ? m[1] : 'default';
+				return fs.exec('/opt/zapretremix/rebuild-opt.sh', [ presetKey ]);
+			})
+			.then(function () { return fs.exec(env_tools.syncCfgPath, []); })
+			.then(function () { return fs.exec(env_tools.execPath, [ 'restart' ]); });
 	},
 
 	handleAddToResources: function (domain) {

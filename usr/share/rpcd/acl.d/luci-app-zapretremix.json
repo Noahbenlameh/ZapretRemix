@@ -17,10 +17,14 @@
 				"/opt/zapret2/blockcheck2.sh*": [ "exec" ],
 				"/opt/zapretremix/run-test.sh*": [ "exec" ],
 				"/opt/zapretremix/rebuild-opt.sh*": [ "exec" ],
+				"/opt/zapretremix/test-strategy.sh*": [ "exec" ],
 				"/opt/zapretremix/dns-pool.txt": [ "read" ],
 				"/opt/zapretremix/pins.json": [ "read" ],
 				"/opt/zapretremix/pin-hosts/*": [ "read" ],
-				"/opt/zapretremix/pin-blocks.txt": [ "read" ]
+				"/opt/zapretremix/pin-blocks.txt": [ "read" ],
+				"/opt/zapretremix/test-hosts.txt": [ "read" ],
+				"/opt/zapretremix/test-opt.txt": [ "read" ],
+				"/opt/zapretremix/opt-backup.txt": [ "read" ]
 			},
 			"uci": [ "zapret2", "dhcp", "network" ],
 			"ubus": {
@@ -34,7 +38,10 @@
 				"/opt/zapretremix/dns-pool.txt": [ "write" ],
 				"/opt/zapretremix/pins.json": [ "write" ],
 				"/opt/zapretremix/pin-hosts/*": [ "write" ],
-				"/opt/zapretremix/pin-blocks.txt": [ "write" ]
+				"/opt/zapretremix/pin-blocks.txt": [ "write" ],
+				"/opt/zapretremix/test-hosts.txt": [ "write" ],
+				"/opt/zapretremix/test-opt.txt": [ "write" ],
+				"/opt/zapretremix/opt-backup.txt": [ "write" ]
 			},
 			"uci": [ "zapret2", "dhcp", "network" ]
 		}
