@@ -112,7 +112,11 @@ return view.extend({
 
 	handleAbort: function () {
 		var out = document.getElementById('zr-test-output');
-		fs.exec('/bin/busybox', [ 'sh', '-c', 'killall blockcheck2.sh 2>/dev/null; killall curl 2>/dev/null' ])
+		// also kill nfqws2 — while blockcheck2.sh runs, ANY nfqws2 seen must be
+		// its own temporary per-strategy test instance (the real daemon is
+		// stopped first), and those can be left orphaned if a run gets cut
+		// short. `start` below brings the real daemon back cleanly either way.
+		fs.exec('/bin/busybox', [ 'sh', '-c', 'killall blockcheck2.sh 2>/dev/null; killall curl 2>/dev/null; killall nfqws2 2>/dev/null' ])
 			.then(L.bind(function () {
 				return fs.exec(env_tools.execPath, [ 'start' ]);
 			}, this))
