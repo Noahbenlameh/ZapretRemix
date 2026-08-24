@@ -36,17 +36,41 @@ return view.extend({
 			uci.load('network'),
 			fs.exec('/bin/busybox', [ 'ps' ]).catch(function () {
 				return { code: -1, stdout: '' };
-			})
+			}),
+			this.getIspDns()
 		]);
+	},
+
+	// DNS server(s) actually handed out by the ISP over DHCP — fetched fresh
+	// regardless of what network.wan.dns/peerdns currently say, so this stays
+	// accurate even while a different DNS mode is active.
+	getIspDns: function () {
+		return fs.exec('/bin/busybox', [ 'sh', '-c', 'ubus call network.interface.wan status' ])
+			.then(function (res) {
+				try {
+					var data = JSON.parse((res && res.stdout) || '{}');
+					return Array.isArray(data['dns-server'])
+						? data['dns-server'].filter(function (ip) { return ip.indexOf(':') === -1; })
+						: [];
+				} catch (e) {
+					return [];
+				}
+			})
+			.catch(function () { return []; });
 	},
 
 	getDnsConfig: function () {
 		var peerdns = uci.get('network', 'wan', 'peerdns');
 		var dnsList = uci.get('network', 'wan', 'dns');
 		var dnsStr = Array.isArray(dnsList) ? dnsList.join(' ') : (dnsList || '');
+		var ispDnsStr = this.ispDns.join(' ');
 		var mode;
-		if (peerdns === '0' && dnsStr) {
-			mode = (dnsStr === PUBLIC_DNS) ? 'public' : 'custom';
+		if (peerdns === '0' && dnsStr === PUBLIC_DNS) {
+			mode = 'public';
+		} else if (peerdns === '0' && ispDnsStr && dnsStr === ispDnsStr) {
+			mode = 'isp_ip';
+		} else if (peerdns === '0' && dnsStr) {
+			mode = 'custom';
 		} else {
 			mode = 'isp';
 		}
@@ -55,8 +79,9 @@ return view.extend({
 
 	dnsLabel: function (cfg) {
 		if (cfg.mode === 'public') return 'Публичный DNS (' + PUBLIC_DNS + ') — обходит DNS-подмену провайдера';
+		if (cfg.mode === 'isp_ip') return 'DNS провайдера напрямую по IP (' + (cfg.dns || this.ispDns.join(' ')) + ') — зафиксировано, не меняется вместе с DHCP';
 		if (cfg.mode === 'custom') return 'Свой DNS (' + cfg.dns + ')';
-		return 'DNS провайдера (по умолчанию) — некоторые домены могут не резолвиться из-за блокировки на уровне DNS';
+		return 'DNS провайдера (авто, по умолчанию) — некоторые домены могут не резолвиться из-за блокировки на уровне DNS';
 	},
 
 	applyDns: function (cfg) {
@@ -65,8 +90,8 @@ return view.extend({
 			uci.set('network', 'wan', 'dns', '');
 		} else {
 			uci.set('network', 'wan', 'peerdns', '0');
-			var list = (cfg.mode === 'public' ? PUBLIC_DNS : cfg.dns).split(/\s+/).filter(Boolean);
-			uci.set('network', 'wan', 'dns', list);
+			var raw = (cfg.mode === 'public') ? PUBLIC_DNS : (cfg.mode === 'isp_ip') ? this.ispDns.join(' ') : cfg.dns;
+			uci.set('network', 'wan', 'dns', raw.split(/\s+/).filter(Boolean));
 		}
 		return uci.save()
 			.then(function () { return fs.exec('/etc/init.d/network', [ 'restart' ]); });
@@ -110,6 +135,7 @@ return view.extend({
 		var running = this.isRunning(psOutput);
 		var cfg = this.getCurrentConfig();
 		this.prevValues = cfg;
+		this.ispDns = data[3] || [];
 		var dnsCfg = this.getDnsConfig();
 		this.prevDns = dnsCfg;
 
@@ -175,8 +201,9 @@ return view.extend({
 		var dnsStatusText = E('span', { 'id': 'zr-dns-status-text' }, this.dnsLabel(dnsCfg));
 
 		var dnsModeOptions = [
-			{ key: 'isp', label: 'DNS провайдера' },
+			{ key: 'isp', label: 'DNS провайдера (авто)' },
 			{ key: 'public', label: 'Публичный DNS (8.8.8.8, 1.1.1.1)' },
+			{ key: 'isp_ip', label: 'DNS провайдера по IP (' + (this.ispDns.join(', ') || 'не определён') + ')' },
 			{ key: 'custom', label: 'Свой DNS' }
 		];
 		var dnsRadios = E('div', { 'id': 'zr-dns-radios', 'style': 'display:flex;gap:18px;flex-wrap:wrap;margin:10px 0;' },

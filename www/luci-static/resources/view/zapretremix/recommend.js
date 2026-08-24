@@ -37,13 +37,37 @@ function parseNslookup(output) {
 
 return view.extend({
 	pool: [],
+	ispDns: [],
 
 	load: function () {
-		return fs.read(POOL_FILE).catch(function () { return ''; });
+		return Promise.all([
+			fs.read(POOL_FILE).catch(function () { return ''; }),
+			this.getIspDns()
+		]);
 	},
 
-	render: function (poolText) {
-		this.pool = parseLines(poolText);
+	// DNS server(s) the ISP itself handed out over DHCP — queried directly by
+	// IP regardless of whatever DNS mode is currently active on the Dashboard,
+	// so "what does the provider block" stays accurate even while public/custom
+	// DNS is in use.
+	getIspDns: function () {
+		return fs.exec('/bin/busybox', [ 'sh', '-c', 'ubus call network.interface.wan status' ])
+			.then(function (res) {
+				try {
+					var data = JSON.parse((res && res.stdout) || '{}');
+					return Array.isArray(data['dns-server'])
+						? data['dns-server'].filter(function (ip) { return ip.indexOf(':') === -1; })
+						: [];
+				} catch (e) {
+					return [];
+				}
+			})
+			.catch(function () { return []; });
+	},
+
+	render: function (data) {
+		this.pool = parseLines(data[0]);
+		this.ispDns = data[1] || [];
 
 		var domainInput = E('input', { 'type': 'text', 'id': 'zr-rec-domain', 'placeholder': 'example.com', 'style': 'width:100%;max-width:420px;' });
 		var checkBtn = E('button', {
@@ -149,23 +173,25 @@ return view.extend({
 		}
 
 		box.innerHTML = '';
-		box.appendChild(E('p', {}, 'Проверяю DNS по пулу (' + this.pool.length + ' серверов) и доступность...'));
+		box.appendChild(E('p', {}, 'Проверяю DNS провайдера, пул (' + this.pool.length + ' серверов) и доступность...'));
 
 		var self = this;
-		var queries = [ this.queryDns(domain, null) ].concat(this.pool.map(function (s) { return self.queryDns(domain, s); }));
+		var ispQueries = this.ispDns.map(function (s) { return self.queryDns(domain, s); });
+		var poolQueries = this.pool.map(function (s) { return self.queryDns(domain, s); });
 
-		Promise.all(queries).then(function (results) {
-			var systemResult = results[0];
-			var poolResults = results.slice(1);
+		Promise.all([
+			this.queryDns(domain, null),
+			Promise.all(ispQueries),
+			Promise.all(poolQueries)
+		]).then(function (all) {
+			var systemResult = all[0];
+			var ispResults = all[1];
+			var poolResults = all[2];
 
-			// consensus: does any pool IP match the system's answer?
 			var poolOk = poolResults.filter(function (r) { return r.ok && r.ips.length; });
-			var systemMatches = systemResult.ok && poolOk.some(function (r) {
-				return r.ips.some(function (ip) { return systemResult.ips.indexOf(ip) !== -1; });
-			});
-			var dnsBlocked = poolOk.length > 0 && !systemMatches;
+			var ispOk = ispResults.filter(function (r) { return r.ok && r.ips.length; });
 
-			// best pool pick: fastest among those that agree with the majority answer
+			// best pool pick: fastest among those that agree with the majority pool answer
 			var ipCounts = {};
 			poolOk.forEach(function (r) {
 				r.ips.forEach(function (ip) { ipCounts[ip] = (ipCounts[ip] || 0) + 1; });
@@ -175,10 +201,20 @@ return view.extend({
 			trusted.sort(function (a, b) { return a.ms - b.ms; });
 			var bestServer = trusted[0];
 
-			var testIp = systemMatches ? systemResult.ips[0] : (bestServer ? majorityIp : null);
+			// provider verdict is based specifically on the ISP's own DNS
+			// server(s), not the system resolver (which may already be
+			// pointed at public/custom DNS on the Dashboard) — so this stays
+			// accurate no matter what DNS mode is currently active.
+			var providerBlocks = ispOk.length === 0 && ispResults.length > 0 && poolOk.length > 0;
+			var providerMismatch = ispOk.length > 0 && majorityIp && !ispOk.some(function (r) {
+				return r.ips.indexOf(majorityIp) !== -1;
+			});
+			var dnsBlocked = providerBlocks || providerMismatch;
+
+			var testIp = (ispOk.length && !dnsBlocked) ? ispOk[0].ips[0] : (bestServer ? majorityIp : (systemResult.ok ? systemResult.ips[0] : null));
 
 			if (!testIp) {
-				self.renderVerdict(domain, systemResult, poolResults, dnsBlocked, bestServer, null);
+				self.renderVerdict(domain, systemResult, ispResults, poolResults, dnsBlocked, bestServer, null);
 				return;
 			}
 
@@ -189,14 +225,22 @@ return view.extend({
 				var out = (res && res.stdout) || '';
 				var m = /EXITCODE=(\d+)/.exec(out);
 				var code = m ? parseInt(m[1], 10) : -1;
-				self.renderVerdict(domain, systemResult, poolResults, dnsBlocked, bestServer, { code: code, ms: Date.now() - curlStart, raw: out });
+				self.renderVerdict(domain, systemResult, ispResults, poolResults, dnsBlocked, bestServer, { code: code, ms: Date.now() - curlStart, raw: out });
 			});
 		});
 	},
 
-	renderVerdict: function (domain, systemResult, poolResults, dnsBlocked, bestServer, curlResult) {
+	renderVerdict: function (domain, systemResult, ispResults, poolResults, dnsBlocked, bestServer, curlResult) {
 		var box = this.resultBox;
 		box.innerHTML = '';
+
+		var ispTable = E('div', { 'style': 'margin:10px 0;font-family:monospace;font-size:12px;' },
+			ispResults.length
+				? ispResults.map(function (r) {
+					return E('div', {}, r.server + ' (провайдер) — ' + (r.ok ? r.ips.join(', ') : 'нет ответа/NXDOMAIN'));
+				})
+				: [ E('div', {}, 'DNS провайдера не определён автоматически (нет данных DHCP).') ]
+		);
 
 		var dnsTable = E('div', { 'style': 'margin:10px 0;font-family:monospace;font-size:12px;' },
 			poolResults.map(function (r) {
@@ -206,17 +250,20 @@ return view.extend({
 
 		var parts = [];
 		parts.push(E('h3', {}, 'DNS'));
-		parts.push(E('p', {}, 'Системный резолвер: ' + (systemResult.ok ? systemResult.ips.join(', ') : 'не резолвит')));
+		parts.push(E('p', {}, 'Сейчас используется (системный резолвер): ' + (systemResult.ok ? systemResult.ips.join(', ') : 'не резолвит')));
+		parts.push(E('p', { 'style': 'margin-top:10px;' }, E('strong', {}, 'Провайдер напрямую:')));
+		parts.push(ispTable);
+		parts.push(E('p', { 'style': 'margin-top:10px;' }, E('strong', {}, 'Пул:')));
 		parts.push(dnsTable);
 
 		if (dnsBlocked && bestServer) {
 			parts.push(E('p', { 'style': 'color:#c90;font-weight:bold;' },
-				'Похоже на DNS-подмену провайдера. Рекомендуем: ' + bestServer.server + ' (' + bestServer.ms + 'мс). ' +
-				'Переключить DNS можно на Дашборде («Свой DNS» → ' + bestServer.server + ', или просто «Публичный DNS», если это 8.8.8.8/1.1.1.1).'));
-		} else if (!systemResult.ok && poolResults.every(function (r) { return !r.ok; })) {
+				'Провайдер подделывает/блокирует DNS-ответ для этого домена. Рекомендуем: ' + bestServer.server + ' (' + bestServer.ms + 'мс). ' +
+				'Переключить можно на Дашборде («Свой DNS» → ' + bestServer.server + ', или «Публичный DNS», если это 8.8.8.8/1.1.1.1).'));
+		} else if (ispResults.length && !ispResults.every(function (r) { return !r.ok; }) && poolResults.every(function (r) { return !r.ok; })) {
 			parts.push(E('p', {}, 'Ни один резолвер (включая пул) не смог разрешить домен — вероятно, домен просто не существует, или проблема шире DNS.'));
 		} else {
-			parts.push(E('p', { 'style': 'color:#3a3;' }, 'DNS в порядке, подмены не обнаружено.'));
+			parts.push(E('p', { 'style': 'color:#3a3;' }, 'Провайдер этот домен по DNS не блокирует.'));
 		}
 
 		parts.push(E('h3', { 'style': 'margin-top:20px;' }, 'Доступность'));
