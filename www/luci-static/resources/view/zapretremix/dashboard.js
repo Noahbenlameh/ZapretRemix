@@ -25,7 +25,6 @@ var PUBLIC_DNS = '8.8.8.8 1.1.1.1';
 
 return view.extend({
 	revertTimer: null,
-	dnsRevertTimer: null,
 	prevValues: null,
 	prevDns: null,
 	container: null,
@@ -84,20 +83,23 @@ return view.extend({
 		return 'DNS провайдера (авто, по умолчанию) — некоторые домены могут не резолвиться из-за блокировки на уровне DNS';
 	},
 
-	applyDns: function (cfg) {
+	// Only *stages* the change (uci.set is purely client-side/local). Actually
+	// committing it to disk and reloading the network stack is left to LuCI's
+	// own built-in ui.changes.apply(true) — see handleDnsApply — which does a
+	// proper server-side "confirm within N seconds or auto-rollback" dance,
+	// same as the native "Save & Apply" button. Our own uci.save() hit a
+	// permission wall on this router; ui.changes.apply is the same mechanism
+	// the native button already proved works.
+	stageDns: function (cfg) {
 		if (cfg.mode === 'isp') {
 			// don't touch 'dns' at all — with peerdns=1, OpenWrt ignores the
-			// static dns list regardless of whatever stale value sits there,
-			// and deleting the option outright hits an ACL permission wall
-			// that plain set() to a real value doesn't.
+			// static dns list regardless of whatever stale value sits there.
 			uci.set('network', 'wan', 'peerdns', '1');
 		} else {
 			uci.set('network', 'wan', 'peerdns', '0');
 			var raw = (cfg.mode === 'public') ? PUBLIC_DNS : (cfg.mode === 'isp_ip') ? this.ispDns.join(' ') : cfg.dns;
 			uci.set('network', 'wan', 'dns', raw.split(/\s+/).filter(Boolean));
 		}
-		return uci.save()
-			.then(function () { return fs.exec('/etc/init.d/network', [ 'restart' ]); });
 	},
 
 	getCurrentConfig: function () {
@@ -253,11 +255,6 @@ return view.extend({
 			'click': ui.createHandlerFn(this, 'handleDnsApply')
 		}, 'Применить DNS');
 
-		var dnsRevertBox = E('div', {
-			'id': 'zr-dns-revert-box',
-			'style': 'display:none;margin-top:14px;padding:12px 14px;border:1px solid #c90;background:#fff8e6;border-radius:4px;color:#333;'
-		});
-
 		var container = E('div', { 'class': 'cbi-map' }, [
 			E('h2', {}, 'ZapretRemix — Дашборд'),
 			E('div', { 'style': 'margin-bottom:16px;' }, [ E('strong', {}, 'Статус демона: '), statusBadge ]),
@@ -282,8 +279,7 @@ return view.extend({
 			E('p', { 'style': 'margin:10px 0;' }, [ E('strong', {}, 'Сейчас: '), dnsStatusText ]),
 			dnsRadios,
 			dnsCustomRow,
-			dnsApplyBtn,
-			dnsRevertBox
+			dnsApplyBtn
 		]);
 
 		this.container = container;
@@ -385,62 +381,14 @@ return view.extend({
 			return;
 		}
 
-		var oldDns = this.prevDns;
-		var newDns = { mode: mode, dns: customDns };
-
-		this.applyDns(newDns).then(L.bind(function () {
-			this.prevDns = newDns;
-			var text = document.getElementById('zr-dns-status-text');
-			if (text) text.textContent = this.dnsLabel(newDns);
-			this.startDnsRevertCountdown(oldDns);
-		}, this)).catch(function (err) {
-			ui.addNotification(null, E('p', {}, 'Не удалось сменить DNS: ' + err), 'error');
-		});
-	},
-
-	startDnsRevertCountdown: function (oldDns) {
-		var box = document.getElementById('zr-dns-revert-box');
-		var self = this;
-		var seconds = REVERT_SECONDS;
-
-		if (this.dnsRevertTimer) {
-			clearInterval(this.dnsRevertTimer);
-			this.dnsRevertTimer = null;
-		}
-
-		function draw() {
-			box.style.display = 'block';
-			box.innerHTML = '';
-			box.appendChild(E('p', {}, 'DNS изменён (перезапустился сетевой стек — у всех в доме мог на секунду моргнуть интернет). ' +
-				'Если что-то не так — через ' + seconds + ' сек. вернётся как было.'));
-			box.appendChild(E('button', {
-				'class': 'cbi-button cbi-button-positive',
-				'click': function () {
-					clearInterval(self.dnsRevertTimer);
-					self.dnsRevertTimer = null;
-					box.style.display = 'none';
-					ui.addNotification(null, E('p', {}, 'DNS-настройка подтверждена.'), 'info');
-				}
-			}, 'Подтвердить (оставить как есть)'));
-		}
-
-		draw();
-		this.dnsRevertTimer = setInterval(function () {
-			seconds -= 1;
-			if (seconds <= 0) {
-				clearInterval(self.dnsRevertTimer);
-				self.dnsRevertTimer = null;
-				box.style.display = 'none';
-				self.applyDns(oldDns).then(function () {
-					self.prevDns = oldDns;
-					var text = document.getElementById('zr-dns-status-text');
-					if (text) text.textContent = self.dnsLabel(oldDns);
-					ui.addNotification(null, E('p', {}, 'DNS автоматически откачен (лучше перезагрузить страницу, чтобы переключатели совпадали).'), 'warning');
-				});
-				return;
-			}
-			draw();
-		}, 1000);
+		this.stageDns({ mode: mode, dns: customDns });
+		// Hand off to LuCI's own built-in apply flow: commits the staged uci
+		// change, reloads the network stack, and — because we pass `true` —
+		// watches connectivity and auto-rolls-back if this device becomes
+		// unreachable within the configured window. Same mechanism as the
+		// native "Save & Apply" button (confirmed working on this router;
+		// our own uci.save() hit a permission wall this doesn't).
+		ui.changes.apply(true);
 	},
 
 	handleSaveApply: null,
