@@ -15,6 +15,31 @@ var PRESETS = [
 ];
 
 var REVERT_SECONDS = 20;
+var PINS_FILE = '/opt/zapretremix/pins.json';
+
+// Kept in sync with pins.js's PIN_TEMPLATES — duplicated rather than shared
+// via a common module, given only these two files need it. Needed here so
+// that applying a strategy globally doesn't wipe out pinned per-domain
+// blocks (set_cfg_nfqws_strat overwrites NFQWS2_OPT entirely with just the
+// clean global preset — pins have to be re-appended every time afterward).
+var PIN_TEMPLATES = {
+	default:
+		'--filter-tcp=80\n--filter-l7=http <HOSTLIST>\n--payload=http_req\n--lua-desync=fake:blob=fake_default_http:tcp_md5\n--lua-desync=multisplit:pos=method+2\n\n' +
+		'--new\n--filter-tcp=443\n--filter-l7=tls <HOSTLIST>\n--payload=tls_client_hello\n--lua-desync=fake:blob=fake_default_tls:tcp_md5:tcp_seq=-10000\n--lua-desync=multidisorder:pos=1,midsld\n\n' +
+		'--new\n--filter-udp=443\n--filter-l7=quic <HOSTLIST_NOAUTO>\n--payload=quic_initial\n--lua-desync=fake:blob=fake_default_quic:repeats=6',
+	v1_by_Schiz23:
+		'--filter-tcp=80\n--filter-l7=http <HOSTLIST>\n--payload=http_req\n--lua-desync=fake:blob=fake_default_http:tcp_md5\n--lua-desync=multisplit:pos=method+2\n\n' +
+		'--new\n--filter-tcp=443\n--filter-l7=tls <HOSTLIST>\n--lua-desync=fake:blob=fake_default_tls:ip_ttl=1:ip6_ttl=1:tls_mod=rnd,rndsni,padencap\n--lua-desync=multidisorder:payload=tls_client_hello:pos=3\n\n' +
+		'--new\n--filter-udp=443\n--filter-l7=quic <HOSTLIST_NOAUTO>\n--lua-desync=fake:blob=fake_default_quic:repeats=11:payload=all:out_range=-d10',
+	v2_by_Schiz23:
+		'--filter-tcp=80\n--filter-l7=http <HOSTLIST>\n--payload=http_req\n--lua-desync=fake:blob=fake_default_http:tcp_md5\n--lua-desync=multisplit:pos=method+2\n\n' +
+		'--new\n--filter-tcp=443\n--filter-l7=tls <HOSTLIST>\n--payload=tls_client_hello\n--lua-desync=multidisorder:payload=tls_client_hello:pos=100,midsld,sniext+1,endhost-2,-10\n--lua-desync=send:sni=.microsoft\n\n' +
+		'--new\n--filter-udp=443\n--filter-l7=quic <HOSTLIST_NOAUTO>\n--payload=quic_initial\n--lua-desync=fake:blob=fake_default_quic:repeats=11',
+	v1_by_AnonymTsk:
+		'--blob=blob_tls_clienthello_www_google_com:@/opt/zapret2/files/fake/tls_clienthello_www_google_com.bin\n--blob=blob_quic_initial_www_google_com:@/opt/zapret2/files/fake/quic_initial_www_google_com.bin\n\n' +
+		'--filter-tcp=443,80\n--filter-l7=http,tls <HOSTLIST>\n--payload=tls_client_hello\n--lua-desync=fake:blob=fake_default_tls:tls_mod=rnd,dupsid,sni=www.google.com:tcp_ts=-1000\n--lua-desync=multidisorder:pos=1,midsld,sniext+1,endhost-2,-10:seqovl=1:seqovl_pattern=blob_tls_clienthello_www_google_com:tcp_ts_up\n--payload=http_req\n--lua-desync=http_methodeol:badsum\n\n' +
+		'--new\n--filter-udp=443\n--filter-l7=quic <HOSTLIST_NOAUTO>\n--payload=quic_initial\n--lua-desync=fake:blob=blob_quic_initial_www_google_com:repeats=11'
+};
 
 return view.extend({
 	prevRaw: null,
@@ -46,6 +71,31 @@ return view.extend({
 		return uci.save()
 			.then(function () { return fs.exec(env_tools.syncCfgPath, []); })
 			.then(function () { return fs.exec(env_tools.execPath, [ 'restart' ]); });
+	},
+
+	// Re-append any pinned per-domain blocks on top of whatever NFQWS2_OPT
+	// currently holds — needed because set_cfg_nfqws_strat (handleApplyPreset)
+	// overwrites NFQWS2_OPT entirely, which would otherwise silently drop
+	// pins the moment someone changes the global strategy.
+	appendPins: function () {
+		return fs.read(PINS_FILE).catch(function () { return '[]'; }).then(L.bind(function (text) {
+			var pins;
+			try { pins = JSON.parse(text); } catch (e) { pins = []; }
+			if (!pins.length) return;
+			return uci.load('zapret2').then(function () {
+				var cleanOpt = uci.get('zapret2', 'config', 'NFQWS2_OPT') || '';
+				var finalOpt = cleanOpt;
+				pins.forEach(function (pin) {
+					var tmpl = PIN_TEMPLATES[pin.preset] || PIN_TEMPLATES.default;
+					var pinFile = '/opt/zapretremix/pin-hosts/' + pin.domain.replace(/[^a-zA-Z0-9.\-]/g, '_') + '.txt';
+					finalOpt += '\n\n--new\n' + tmpl
+						.replace(/<HOSTLIST_NOAUTO>/g, '--hostlist=' + pinFile)
+						.replace(/<HOSTLIST>/g, '--hostlist=' + pinFile);
+				});
+				uci.set('zapret2', 'config', 'NFQWS2_OPT', finalOpt);
+				return uci.save().catch(function () {});
+			});
+		}, this));
 	},
 
 	render: function () {
@@ -118,6 +168,7 @@ return view.extend({
 		var oldRaw = this.prevRaw;
 		var cmd = '. ' + env_tools.defCfgPath + '; set_cfg_nfqws_strat ' + key + ' zapret2';
 		fs.exec('/bin/busybox', [ 'sh', '-c', cmd ])
+			.then(L.bind(this.appendPins, this))
 			.then(L.bind(function () { return fs.exec(env_tools.syncCfgPath, []); }, this))
 			.then(L.bind(function () { return fs.exec(env_tools.execPath, [ 'restart' ]); }, this))
 			.then(L.bind(function () {
@@ -136,6 +187,11 @@ return view.extend({
 	},
 
 	handleApplyCustom: function () {
+		// Deliberately does NOT call appendPins() — this path applies
+		// whatever raw text the user typed verbatim (which may already
+		// include pin blocks from a prior rebuild); auto-appending again
+		// here risks duplicating them. Custom mode is power-user territory,
+		// managing pin blocks manually if visible in the textarea is on them.
 		var oldRaw = this.prevRaw;
 		var newRaw = {
 			mode: oldRaw.mode,

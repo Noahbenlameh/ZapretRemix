@@ -23,6 +23,13 @@ else
 	echo "dns-pool.txt already exists, leaving your edits alone."
 fi
 
+if [ ! -f /opt/zapretremix/pins.json ]; then
+	cp -v "$SRC_DIR/opt/zapretremix/pins.json.default" /opt/zapretremix/pins.json
+else
+	echo "pins.json already exists, leaving your edits alone."
+fi
+mkdir -p /opt/zapretremix/pin-hosts
+
 echo "Reloading rpcd (ACL) ..."
 /etc/init.d/rpcd restart
 

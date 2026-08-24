@@ -36,6 +36,12 @@
 		"action": { "type": "view", "path": "zapretremix/resources" }
 	},
 
+	"admin/services/zapretremix/pins": {
+		"title": "Закреплённые",
+		"order": 35,
+		"action": { "type": "view", "path": "zapretremix/pins" }
+	},
+
 	"admin/services/zapretremix/test": {
 		"title": "Тест и анализ",
 		"order": 40,
