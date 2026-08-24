@@ -432,17 +432,26 @@ return view.extend({
 		}
 	},
 
+	// pins.json entries are { id, domains: [...] } as of the multi-domain pin
+	// change (see pins.js) — this only ever creates single-domain pins from a
+	// test result, but reads/writes the current shape so it stays compatible
+	// with entries edited afterward on the Закреплённые tab.
 	handlePinResult: function (domain, presetKey) {
 		var self = this;
+		var id = domain.replace(/[^a-zA-Z0-9.\-]/g, '_');
 		fs.read('/opt/zapretremix/pins.json').catch(function () { return '[]'; }).then(function (text) {
 			var pins;
 			try { pins = JSON.parse(text); } catch (e) { pins = []; }
-			if (pins.some(function (p) { return p.domain === domain; })) {
+			var exists = pins.some(function (p) {
+				return (p.id && p.id === id) || p.domain === domain ||
+					(Array.isArray(p.domains) && p.domains.indexOf(domain) !== -1);
+			});
+			if (exists) {
 				ui.addNotification(null, E('p', {}, 'Этот домен уже закреплён — измени на вкладке «Закреплённые».'), 'warning');
 				return null;
 			}
-			pins.push({ domain: domain, preset: presetKey, dns: '' });
-			var pinFile = '/opt/zapretremix/pin-hosts/' + domain.replace(/[^a-zA-Z0-9.\-]/g, '_') + '.txt';
+			pins.push({ id: id, domains: [ domain ], preset: presetKey, dns: '' });
+			var pinFile = '/opt/zapretremix/pin-hosts/' + id + '.txt';
 			return fs.exec('/bin/busybox', [ 'mkdir', '-p', '/opt/zapretremix/pin-hosts' ])
 				.then(function () { return fs.write(pinFile, domain + '\n'); })
 				.then(function () { return fs.write('/opt/zapretremix/pins.json', JSON.stringify(pins, null, 2)); })
@@ -457,7 +466,9 @@ return view.extend({
 
 	rebuildWithPins: function (pins) {
 		var extra = pins.map(function (pin) {
-			var pinFile = '/opt/zapretremix/pin-hosts/' + pin.domain.replace(/[^a-zA-Z0-9.\-]/g, '_') + '.txt';
+			var firstDomain = (Array.isArray(pin.domains) && pin.domains.length) ? pin.domains[0] : pin.domain;
+			var id = pin.id || firstDomain.replace(/[^a-zA-Z0-9.\-]/g, '_');
+			var pinFile = '/opt/zapretremix/pin-hosts/' + id + '.txt';
 			return '--new\n' + fillPinTemplate(pin.preset, pinFile);
 		}).join('\n\n');
 

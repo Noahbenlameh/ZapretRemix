@@ -87,7 +87,12 @@ return view.extend({
 			try { pins = JSON.parse(text); } catch (e) { pins = []; }
 			var extra = pins.map(function (pin) {
 				var tmpl = PIN_TEMPLATES[pin.preset] || PIN_TEMPLATES.default;
-				var pinFile = '/opt/zapretremix/pin-hosts/' + pin.domain.replace(/[^a-zA-Z0-9.\-]/g, '_') + '.txt';
+				// pins.json entries are { id, domains: [...] } as of the
+				// multi-domain pin change; fall back to the older single-
+				// `domain` string shape for pins created before that.
+				var firstDomain = (Array.isArray(pin.domains) && pin.domains.length) ? pin.domains[0] : pin.domain;
+				var id = pin.id || firstDomain.replace(/[^a-zA-Z0-9.\-]/g, '_');
+				var pinFile = '/opt/zapretremix/pin-hosts/' + id + '.txt';
 				return '--new\n' + tmpl
 					.replace(/<HOSTLIST_NOAUTO>/g, '--hostlist=' + pinFile)
 					.replace(/<HOSTLIST>/g, '--hostlist=' + pinFile);
