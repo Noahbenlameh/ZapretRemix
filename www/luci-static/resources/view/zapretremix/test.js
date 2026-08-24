@@ -38,29 +38,35 @@ return view.extend({
 		]);
 	},
 
-	buildStdin: function (domain, insecure) {
+	sanitizeDomain: function (domain) {
+		return domain.replace(/[^a-zA-Z0-9.\-]/g, '');
+	},
+
+	buildAnswers: function (domain) {
 		// wizard sequence: test-type, domain, ip-version, http?, tls1.2?, tls1.3?, repeats, parallel?, thoroughness
-		return [ '2', domain, '4', 'N', 'Y', 'N', '1', 'N', '1', '' ].join('\n');
+		// joined with literal \n (two chars) so printf's format string turns them into real newlines
+		return [ '2', domain, '4', 'N', 'Y', 'N', '1', 'N', '1', '' ].join('\\n') + '\\n';
 	},
 
 	handleRun: function () {
-		var domain = document.getElementById('zr-test-domain').value.trim();
+		var rawDomain = document.getElementById('zr-test-domain').value.trim();
+		var domain = this.sanitizeDomain(rawDomain);
 		var insecure = document.getElementById('zr-test-insecure').checked;
 		var out = document.getElementById('zr-test-output');
 
 		if (!domain) {
-			out.textContent = 'Введи домен.';
+			out.textContent = 'Введи корректный домен.';
 			return;
 		}
 
 		out.textContent = 'Останавливаю zapret2 и запускаю проверку (может занять до минуты)...';
 
-		var env = insecure ? [ 'sh', '-c', 'CURL_OPT=-k ' + env_tools.appDir + '/blockcheck2.sh' ]
-		                    : [ 'sh', '-c', env_tools.appDir + '/blockcheck2.sh' ];
+		var prefix = insecure ? 'CURL_OPT=-k ' : '';
+		var cmd = 'printf "' + this.buildAnswers(domain) + '" | ' + prefix + env_tools.appDir + '/blockcheck2.sh';
 
 		fs.exec(env_tools.execPath, [ 'stop' ])
 			.then(L.bind(function () {
-				return fs.exec('/bin/busybox', env, this.buildStdin(domain, insecure));
+				return fs.exec('/bin/busybox', [ 'sh', '-c', cmd ]);
 			}, this))
 			.then(L.bind(function (res) {
 				out.textContent = (res && (res.stdout || res.stderr)) || '(пустой вывод)';
