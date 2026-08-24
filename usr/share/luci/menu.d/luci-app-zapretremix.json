@@ -1,0 +1,23 @@
+{
+	"admin/services/zapretremix": {
+		"title": "ZapretRemix",
+		"order": 63,
+		"action": {
+			"type": "alias",
+			"path": "admin/services/zapretremix/dashboard"
+		},
+		"depends": {
+			"acl": [ "luci-app-zapretremix" ],
+			"uci": { "zapret2": true }
+		}
+	},
+
+	"admin/services/zapretremix/dashboard": {
+		"title": "Дашборд",
+		"order": 10,
+		"action": {
+			"type": "view",
+			"path": "zapretremix/dashboard"
+		}
+	}
+}

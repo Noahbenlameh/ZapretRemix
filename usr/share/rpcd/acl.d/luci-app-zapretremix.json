@@ -1,0 +1,27 @@
+{
+	"luci-app-zapretremix": {
+		"description": "Grant access to ZapretRemix procedures",
+		"read": {
+			"cgi-io": [ "exec" ],
+			"file": {
+				"/opt/zapret2/config": [ "read" ],
+				"/opt/zapret2/ipset/*": [ "read" ],
+				"/tmp/zapret*": [ "read" ],
+				"/etc/init.d/zapret2*": [ "exec" ],
+				"/bin/busybox*": [ "exec" ],
+				"/opt/zapret2/sync_config.sh*": [ "exec" ]
+			},
+			"uci": [ "zapret2" ],
+			"ubus": {
+				"luci": [ "getInitList", "setInitAction" ]
+			}
+		},
+		"write": {
+			"file": {
+				"/opt/zapret2/config": [ "write" ],
+				"/opt/zapret2/ipset/*": [ "write" ]
+			},
+			"uci": [ "zapret2" ]
+		}
+	}
+}
