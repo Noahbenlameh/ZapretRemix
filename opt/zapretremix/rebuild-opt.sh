@@ -24,11 +24,18 @@ if [ -s "$EXTRA_FILE" ]; then
 	# same --blob= lines the base already has — nfqws2 silently fails to
 	# start on a duplicate blob name. Strip any --blob= line here whose name
 	# already appeared (in BASE_OPT, or earlier in EXTRA itself).
-	EXISTING_BLOBS="$(printf '%s\n' "$BASE_OPT" | grep -o '^--blob=[^:]*' || true)"
+	EXISTING_BLOBS="$(printf '%s\n' "$BASE_OPT" | grep -o -- '--blob=[^:]*' || true)"
 	EXTRA="$(cat "$EXTRA_FILE" | awk -v existing="$EXISTING_BLOBS" '
 		BEGIN { n = split(existing, arr, "\n"); for (i = 1; i <= n; i++) if (arr[i] != "") seen[arr[i]] = 1 }
-		/^--blob=/ { name = $0; sub(/:.*/, "", name); if (seen[name]) next; seen[name] = 1 }
-		{ print }
+		{
+			line = $0
+			if (match(line, /--blob=[^:]*/)) {
+				name = substr(line, RSTART, RLENGTH)
+				if (seen[name]) next
+				seen[name] = 1
+			}
+			print
+		}
 	')"
 
 	uci set zapret2.config.NFQWS2_OPT="${BASE_OPT}
