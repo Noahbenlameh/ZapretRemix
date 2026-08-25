@@ -66,6 +66,12 @@
 		"action": { "type": "view", "path": "zapretremix/logs" }
 	},
 
+	"admin/services/zapretremix/export": {
+		"title": "Экспорт/Импорт",
+		"order": 65,
+		"action": { "type": "view", "path": "zapretremix/export" }
+	},
+
 	"admin/services/zapretremix/update": {
 		"title": "Обновление",
 		"order": 70,

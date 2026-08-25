@@ -1,0 +1,8 @@
+{
+	"name": "zapretremix",
+	"private": true,
+	"description": "Unit tests for ZapretRemix's pure JS/shell logic (shared.js helpers, rebuild-opt.sh blob dedup) — this is a LuCI/OpenWrt project, not a Node package.",
+	"scripts": {
+		"test": "node --test test/*.test.js"
+	}
+}
