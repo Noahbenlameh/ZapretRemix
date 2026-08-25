@@ -20,6 +20,11 @@
 // v1_by_Routerich deliberately excluded — too large/complex (14 numbered
 // sub-strategies with hardcoded google.com-specific hostlist references)
 // to safely templatize by hand.
+//
+// Attribution: v1_by_Schiz23/v2_by_Schiz23 are by Schiz23
+// (github.com/Schiz23/luci-app-zapret, MIT). v1_by_AnonymTsk is by
+// AnonymTsk, shipped as part of remittor/zapret-openwrt's def-cfg.sh
+// (MIT) — see github.com/remittor/zapret-openwrt/pull/716.
 var PIN_TEMPLATES = {
 	default:
 		'--filter-tcp=80\n--filter-l7=http <HOSTLIST>\n--payload=http_req\n--lua-desync=fake:blob=fake_default_http:tcp_md5\n--lua-desync=multisplit:pos=method+2\n\n' +
