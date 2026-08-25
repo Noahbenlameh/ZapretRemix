@@ -1,0 +1,36 @@
+name: Tests
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Syntax-check LuCI JS views
+        run: |
+          for f in www/luci-static/resources/view/zapretremix/*.js; do
+            node --check "$f"
+          done
+
+      - name: Syntax-check shell scripts
+        run: |
+          for f in opt/zapretremix/*.sh; do
+            sh -n "$f"
+          done
+
+      - name: Validate JSON (menu/ACL)
+        run: |
+          python3 -c "import json, glob; [json.load(open(f)) for f in glob.glob('usr/share/**/*.json', recursive=True)]"
+
+      - name: Run unit tests
+        run: npm test

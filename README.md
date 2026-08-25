@@ -104,23 +104,24 @@ ZapretRemix — набор LuCI JS-вьюх (`www/luci-static/resources/view/zap
 
 ## Статус
 
-**Фаза 1 — Дашборд (в разработке):** статус демона, Старт/Стоп/Рестарт, режим фильтрации человеческими словами, глубина обработки пакетов, безопасное применение настроек с таймером автоотката (20 сек).
-
-Дальше по плану: Стратегии (пресеты из `def-cfg.sh`), Ресурсы (управление hostlist/exclude списками), Тест и анализ (обёртка над `blockcheck2.sh`), Логи, поиск стратегии по имени приложения.
-
-## Установка (пока вручную, без GitHub-инсталлятора)
-
-С Мака на роутер (замени IP на актуальный):
-```sh
-scp -r ZapretRemix root@192.168.85.1:/tmp/
-ssh root@192.168.85.1 'sh /tmp/ZapretRemix/install.sh'
-```
-
-Потом в браузере: жёсткое обновление страницы (Ctrl+Shift+R / Cmd+Shift+R), затем Services → ZapretRemix.
+Все 11 вкладок из таблицы выше реализованы и в работе. В планах: упаковка через `opkg` вместо ручной установки тарболом и поддержка HomeProxy/VLESS/Hysteria/TUIC туннелей — оба пункта пока сознательно отложены.
 
 ## Структура
 
 Дерево внутри репозитория 1:1 повторяет пути на роутере (`usr/...`, `www/...`) — `install.sh` просто копирует их на место.
+
+## Установка
+
+Нужен уже установленный и настроенный `zapret2`/`luci-app-zapret2` — ZapretRemix только надстройка над ним, сам его не ставит. На роутере по SSH:
+
+```sh
+rm -rf /tmp/zr && mkdir -p /tmp/zr
+curl -fsSL -o /tmp/zr.tar.gz https://api.github.com/repos/Noahbenlameh/ZapretRemix/tarball/master
+tar -xzf /tmp/zr.tar.gz -C /tmp/zr
+sh /tmp/zr/*/install.sh
+```
+
+Потом в браузере — жёсткое обновление страницы (Ctrl+Shift+R / Cmd+Shift+R), Services → ZapretRemix.
 
 ## Лицензия
 
